@@ -1,9 +1,17 @@
 use color_eyre::eyre::eyre;
 use reqwest::header::HeaderMap;
+use serde::Deserialize;
 
 use super::config::CredentialConfig;
 
-pub async fn get_onenote_credentials(config: &CredentialConfig) -> color_eyre::Result<String> {
+#[derive(Debug, Deserialize)]
+pub struct OneNoteCredentialsResponse {
+    pub scope: String,
+    pub token: String,
+}
+pub async fn get_onenote_credentials(
+    config: &CredentialConfig,
+) -> color_eyre::Result<OneNoteCredentialsResponse> {
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
     headers.append(
@@ -22,9 +30,9 @@ pub async fn get_onenote_credentials(config: &CredentialConfig) -> color_eyre::R
             res.text().await
         ));
     }
-    let text = res
-        .text()
+    let text: OneNoteCredentialsResponse = res
+        .json()
         .await
-        .map_err(|e| eyre!("get_access_token: Failed to read response text: {:?}", e))?;
+        .map_err(|e| eyre!("get_access_token: Failed to read response: {:?}", e))?;
     Ok(text)
 }

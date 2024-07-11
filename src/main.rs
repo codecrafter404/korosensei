@@ -7,7 +7,14 @@ mod utils;
 async fn main() -> color_eyre::Result<()> {
     env_logger::init();
     color_eyre::install()?;
-    let _ = dotenv::dotenv();
+    match dotenv::dotenv() {
+        Ok(x) => {
+            log::info!("Using .env: {:?}", x);
+        }
+        Err(x) => {
+            log::info!("the .env file will be skipped: {}", x);
+        }
+    }
 
     let args = crate::utils::commandline::Args::parse();
 

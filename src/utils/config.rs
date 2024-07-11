@@ -31,11 +31,11 @@ impl CredentialConfig {
     pub fn from_environment() -> color_eyre::Result<CredentialConfig> {
         Ok(CredentialConfig {
             onedrive_access_token_url: Url::parse(
-                &std::env::var("ONEDRIVE_ACCESS_TOKEN_URL")
+                &dotenv::var("ONEDRIVE_ACCESS_TOKEN_URL")
                     .wrap_err("Expected ONEDRIVE_ACCESS_TOKEN_URL to be set")?,
             )?,
             onedrive_access_token_authorization: HeaderValue::from_str(
-                &std::env::var("ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION")
+                &dotenv::var("ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION")
                     .wrap_err("Expected ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION to be set")?,
             )?,
         })
@@ -59,21 +59,21 @@ pub struct AudioSyncConfig {
 impl AudioSyncConfig {
     pub fn from_environment() -> color_eyre::Result<AudioSyncConfig> {
         return Ok(AudioSyncConfig {
-            onedrive_source_folder: std::env::var("ONEDRIVE_SOURCE_FOLDER")
+            onedrive_source_folder: dotenv::var("ONEDRIVE_SOURCE_FOLDER")
                 .wrap_err("Expected ONEDRIVE_SOURCE_FOLDER to be set")?,
 
             git_directory: PathBuf::from_str(
-                &std::env::var("GIT_DIRECTORY").wrap_err("Expected GIT_DIRECTORY to be set")?,
+                &dotenv::var("GIT_DIRECTORY").wrap_err("Expected GIT_DIRECTORY to be set")?,
             )?,
 
-            git_branch: std::env::var("GIT_BRANCH").wrap_err("Expected GIT_BRANCH to be set")?,
+            git_branch: dotenv::var("GIT_BRANCH").wrap_err("Expected GIT_BRANCH to be set")?,
 
             git_destination_folder: PathBuf::from_str(
-                &std::env::var("GIT_DESTINATION_FOLDER")
+                &dotenv::var("GIT_DESTINATION_FOLDER")
                     .wrap_err("Expected GIT_DESTINATION_FOLDER to be set")?,
             )?,
 
-            permitted_file_types: std::env::var("PERMITTED_FILE_TYPES")
+            permitted_file_types: dotenv::var("PERMITTED_FILE_TYPES")
                 .wrap_err("Expected PERMITTED_FILE_TYPES to be set")?
                 .replace(" ", "")
                 .split(",")

@@ -16,6 +16,11 @@ struct OneDriveChildren {
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OneDriveChildrenVec {
+    value: Vec<OneDriveChildren>,
+}
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct OneDriveFolder {}
 // #[derive(Debug, Deserialize)]
 // #[serde(rename_all = "camelCase")]
@@ -33,7 +38,12 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
 
     let res = git_command_wrapper(&["branch", "--list", "--no-color"], &github_repo_root)?;
     wrap_git_command_error(&res)?;
-    let branches: Vec<_> = res.std_out.split("\n").map(|x| x[2..].to_owned()).collect(); // remove the 2 colums displaying the current status
+    let branches: Vec<_> = res
+        .std_out
+        .split("\n")
+        .filter(|x| !x.is_empty())
+        .map(|x| x[2..].to_owned())
+        .collect(); // remove the 2 colums displaying the current status
     if !branches.contains(&audio_sync.git_branch) {
         log::info!("Creating empty branch {}", audio_sync.git_branch);
         let res = git_command_wrapper(
@@ -75,7 +85,10 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
 
     // OneDrive
     let token = crate::utils::credentials::get_onenote_credentials(&credential_config).await?;
-    let graph_client = GraphClient::new(token);
+    if !token.scope.contains("Files.Read") {
+        return Err(eyre!("Access token didn't cover the scrope 'Files.Read'"));
+    }
+    let graph_client = GraphClient::new(token.token);
 
     let onedrive_path = audio_sync.onedrive_source_folder;
 
@@ -90,19 +103,20 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         return Err(eyre!("Due to technical limitations the onenote source_dir cant be located at the drives root"));
     }
 
-    let mut children = graph_client
+    let children = graph_client
         .me()
         .drive()
         .item_by_path(format!(":{}:", onedrive_source_path))
         .list_children()
         .select(&["name", "folder", "file"])
         .paging()
-        .stream::<OneDriveChildren>()?;
+        .json::<OneDriveChildrenVec>()
+        .await?;
+
+    let mut files_to_sync = vec![];
 
     // check which files are already synced
-    let mut files_to_sync = Vec::new();
-    while let Some(result) = children.next().await {
-        let res = result?;
+    for res in children.into_iter() {
         if !res.status().is_success() {
             return Err(eyre!(
                 "Failed to read url {:?}: ({})",
@@ -111,34 +125,38 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
             ));
         }
         let res = res.into_body()?;
-        if res.folder.is_some() {
-            continue;
-        }
-        let remote_file_extension = res.name.split(".").last().unwrap_or_default();
-        if !audio_sync
-            .permitted_file_types
-            .contains(&remote_file_extension.to_owned())
-        {
-            log::debug!(
-                "Skipped non audio file {}/{}",
-                onedrive_source_path,
-                res.name
-            );
-        }
+        for res in res.value {
+            if res.folder.is_some() {
+                continue;
+            }
+            let remote_file_extension = res.name.split(".").last().unwrap_or_default();
+            if !audio_sync
+                .permitted_file_types
+                .contains(&remote_file_extension.to_owned())
+            {
+                log::info!(
+                    "Skipped non audio file {}/{}",
+                    onedrive_source_path,
+                    res.name
+                );
+                continue;
+            }
 
-        let name = format!("{}.link", res.name);
-        if github_files
-            .iter()
-            .find(|x| {
-                x.file_name()
-                    .is_some_and(|x| x.to_str().is_some_and(|x| name == x))
-            })
-            .is_none()
-        {
-            files_to_sync.push(name);
+            let name = format!("{}.link", res.name);
+            if github_files
+                .iter()
+                .find(|x| {
+                    x.file_name()
+                        .is_some_and(|x| x.to_str().is_some_and(|x| name == x))
+                })
+                .is_none()
+            {
+                files_to_sync.push(name);
+            }
         }
     }
 
+    let mut synced_files = 0;
     // syncing files
     for file in &files_to_sync {
         let git_target_file = git_target_path.join(&file);
@@ -152,6 +170,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
                     onedrive_path,
                     git_target_file
                 );
+                synced_files += 1;
             }
             Err(why) => {
                 log::error!(
@@ -164,18 +183,23 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         }
     }
 
-    // stage & commit changes
-    wrap_git_command_error(&git_command_wrapper(&["add", "*"], &github_repo_root)?)?;
-    wrap_git_command_error(&git_command_wrapper(
-        &[
-            "commit",
-            "-m",
-            &format!("add: {}", files_to_sync.join(",")),
-            "--author",
-            "Koro-sensei <koro-sensei@ansatsu-anime.com>",
-        ],
-        &github_repo_root,
-    )?)?;
+    if synced_files >= 1 {
+        // stage & commit changes
+        wrap_git_command_error(&git_command_wrapper(&["add", "*"], &github_repo_root)?)?;
+        wrap_git_command_error(&git_command_wrapper(
+            &[
+                "commit",
+                "-m",
+                &format!("add: {}", files_to_sync.join(",")),
+                "--author",
+                "Koro-sensei <koro-sensei@ansatsu-anime.com>",
+            ],
+            &github_repo_root,
+        )?)?;
+        log::info!("Successfully commited {} links", synced_files);
+    } else {
+        log::info!("No files have been commited")
+    }
 
     Ok(())
 }
