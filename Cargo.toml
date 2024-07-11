@@ -2,6 +2,7 @@
 name = "korosensei"
 version = "0.1.0"
 edition = "2021"
+description = "Supercharge your school notes at mach 20"
 authors = [ "Codecrafter_404 <codecrafter404@github.com>" ]
 
 [dependencies]
@@ -10,9 +11,10 @@ serde = {version = "1.0.204", features = ["derive"]}
 serde_json = "1.0.120"
 graph-rs-sdk = {version = "2.0.0", features = ["rustls-tls"]}
 color-eyre = "0.6.3"
-futures = "0.3.30"
 tokio = {version = "1.38.0", features = ["macros"]}
 log = "0.4.22"
 env_logger = "0.11.3"
 dotenv = "0.15.0"
 clap = {version = "4.5.9", features = ["derive"]}
+which = "6.0.1"
+lazy-regex = "3.1.0"

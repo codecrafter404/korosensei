@@ -16,12 +16,18 @@ async fn main() -> color_eyre::Result<()> {
         }
     }
 
+    crate::utils::prerequisits::check_prerequisits()?;
+
     let args = crate::utils::commandline::Args::parse();
 
-    let config = crate::utils::config::Config::from_environment(args.audio_linker)?;
+    let config =
+        crate::utils::config::Config::from_environment(args.audio_linker, args.transcription)?;
 
     if args.audio_linker {
         crate::jobs::audio_linker::link_audio(&config).await?;
+    }
+    if args.transcription {
+        crate::jobs::transcription::transcribe_audio(&config).await?;
     }
     return Ok(());
 }

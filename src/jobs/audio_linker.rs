@@ -1,11 +1,13 @@
 use std::{path::Path, process::ExitStatus};
 
 use color_eyre::eyre::{eyre, OptionExt as _};
-use futures::StreamExt as _;
 use graph_rs_sdk::{http::HttpResponseExt as _, GraphClient, ODataQuery as _};
 use serde::Deserialize;
 
-use crate::utils::config::Config;
+use crate::utils::{
+    config::Config,
+    git::{git_command_wrapper, wrap_git_command_error, GIT_AUTHOR},
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,7 +34,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         .audio_sync
         .ok_or_eyre("Expected audio_sync config to be initialized")?;
 
-    let github_repo_root = audio_sync.git_directory;
+    let github_repo_root = &config.git_directory;
 
     //TODO: validate that the branch exists
 
@@ -192,7 +194,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
                 "-m",
                 &format!("add: {}", files_to_sync.join(",")),
                 "--author",
-                "Koro-sensei <koro-sensei@ansatsu-anime.com>",
+                GIT_AUTHOR,
             ],
             &github_repo_root,
         )?)?;
@@ -201,38 +203,5 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         log::info!("No files have been commited")
     }
 
-    Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct GitCommandOutput {
-    status: ExitStatus,
-    std_out: String,
-    std_err: String,
-    args: Vec<String>,
-}
-fn git_command_wrapper(args: &[&str], path: &Path) -> color_eyre::Result<GitCommandOutput> {
-    let res = std::process::Command::new("git")
-        .current_dir(path)
-        .args(args)
-        .output()?;
-
-    Ok(GitCommandOutput {
-        status: res.status,
-        std_out: String::from_utf8(res.stdout)?,
-        std_err: String::from_utf8(res.stderr)?,
-        args: args.into_iter().map(|x| x.to_owned().to_owned()).collect(),
-    })
-}
-
-fn wrap_git_command_error(res: &GitCommandOutput) -> color_eyre::Result<()> {
-    if !res.status.success() {
-        return Err(eyre!(
-            "Git command({:?}) failed: {:?} ({:?})",
-            res.args,
-            res,
-            res.status.code()
-        ));
-    }
     Ok(())
 }
