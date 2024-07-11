@@ -1,5 +1,6 @@
 use std::{path::PathBuf, str::FromStr};
 
+use color_eyre::eyre::Context;
 use reqwest::{header::HeaderValue, Url};
 
 #[derive(Debug, Clone)]
@@ -29,10 +30,14 @@ pub struct CredentialConfig {
 impl CredentialConfig {
     pub fn from_environment() -> color_eyre::Result<CredentialConfig> {
         Ok(CredentialConfig {
-            onedrive_access_token_url: Url::parse(&std::env::var("ONEDRIVE_ACCESS_TOKEN_URL")?)?,
-            onedrive_access_token_authorization: HeaderValue::from_str(&std::env::var(
-                "ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION",
-            )?)?,
+            onedrive_access_token_url: Url::parse(
+                &std::env::var("ONEDRIVE_ACCESS_TOKEN_URL")
+                    .wrap_err("Expected ONEDRIVE_ACCESS_TOKEN_URL to be set")?,
+            )?,
+            onedrive_access_token_authorization: HeaderValue::from_str(
+                &std::env::var("ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION")
+                    .wrap_err("Expected ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION to be set")?,
+            )?,
         })
     }
 }
@@ -54,13 +59,23 @@ pub struct AudioSyncConfig {
 impl AudioSyncConfig {
     pub fn from_environment() -> color_eyre::Result<AudioSyncConfig> {
         return Ok(AudioSyncConfig {
-            onedrive_source_folder: std::env::var("ONEDRIVE_SOURCE_FOLDER")?,
+            onedrive_source_folder: std::env::var("ONEDRIVE_SOURCE_FOLDER")
+                .wrap_err("Expected ONEDRIVE_SOURCE_FOLDER to be set")?,
 
-            git_directory: PathBuf::from_str(&std::env::var("GIT_DIRECTORY")?)?,
-            git_branch: std::env::var("GIT_BRANCH")?,
-            git_destination_folder: PathBuf::from_str(&std::env::var("GIT_DESTINATION_FOLDER")?)?,
+            git_directory: PathBuf::from_str(
+                &std::env::var("GIT_DIRECTORY").wrap_err("Expected GIT_DIRECTORY to be set")?,
+            )?,
 
-            permitted_file_types: std::env::var("PERMITTED_FILE_TYPES")?
+            git_branch: std::env::var("GIT_BRANCH").wrap_err("Expected GIT_BRANCH to be set")?,
+
+            git_destination_folder: PathBuf::from_str(
+                &std::env::var("GIT_DESTINATION_FOLDER")
+                    .wrap_err("Expected GIT_DESTINATION_FOLDER to be set")?,
+            )?,
+
+            permitted_file_types: std::env::var("PERMITTED_FILE_TYPES")
+                .wrap_err("Expected PERMITTED_FILE_TYPES to be set")?
+                .replace(" ", "")
                 .split(",")
                 .map(|x| x.strip_prefix(".").unwrap_or(x).to_owned())
                 .collect(),
