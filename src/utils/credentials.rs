@@ -3,15 +3,15 @@ use reqwest::header::HeaderMap;
 
 use super::config::CredentialConfig;
 
-pub async fn get_onenote_credentials(config: CredentialConfig) -> color_eyre::Result<String> {
+pub async fn get_onenote_credentials(config: &CredentialConfig) -> color_eyre::Result<String> {
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
     headers.append(
         reqwest::header::AUTHORIZATION,
-        config.onedrive_access_token_authorization,
+        config.onedrive_access_token_authorization.clone(),
     );
     let res = client
-        .get(config.onedrive_access_token_url)
+        .get(config.onedrive_access_token_url.clone())
         .headers(headers)
         .send()
         .await?;

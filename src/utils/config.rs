@@ -40,7 +40,7 @@ impl CredentialConfig {
 #[derive(Debug, Clone)]
 pub struct AudioSyncConfig {
     // OneNote
-    pub onedrive_source_folder: PathBuf,
+    pub onedrive_source_folder: String,
 
     // Git
     pub git_directory: PathBuf,
@@ -54,7 +54,7 @@ pub struct AudioSyncConfig {
 impl AudioSyncConfig {
     pub fn from_environment() -> color_eyre::Result<AudioSyncConfig> {
         return Ok(AudioSyncConfig {
-            onedrive_source_folder: PathBuf::from_str(&std::env::var("ONEDRIVE_SOURCE_FOLDER")?)?,
+            onedrive_source_folder: std::env::var("ONEDRIVE_SOURCE_FOLDER")?,
 
             git_directory: PathBuf::from_str(&std::env::var("GIT_DIRECTORY")?)?,
             git_branch: std::env::var("GIT_BRANCH")?,
