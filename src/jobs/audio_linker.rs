@@ -3,6 +3,8 @@ use futures::StreamExt as _;
 use graph_rs_sdk::{http::HttpResponseExt as _, GraphClient, ODataQuery as _};
 use serde::Deserialize;
 
+use crate::utils::config::Config;
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,80 +43,20 @@ struct GithubTreeResponse {
     url: String,
     tree: Vec<GithubTreeNode>,
 }
-async fn get_kv_key(key: &str) -> color_eyre::Result<String> {
-    unimplemented!()
-}
-async fn handle_scheduled_event() -> color_eyre::Result<()> {
-    // GitHub
-    let github_repo_path = get_kv_key("github_repo_path").await?;
-    let github_repo_path = github_repo_path
-        .strip_prefix("/")
-        .unwrap_or(&github_repo_path)
-        .to_owned();
+async fn link_audio(config: &Config) -> color_eyre::Result<()> {
+    let credential_config = config.credentials;
+    let audio_sync = config
+        .audio_sync
+        .ok_or_eyre("Expected audio_sync config to be initialized")?;
 
-    let github_repo_path = github_repo_path
-        .strip_suffix("/")
-        .unwrap_or(&github_repo_path)
-        .to_owned();
+    //TODO: validate that the branch exists
 
-    let github_api_key = get_kv_key("github_api_key").await?;
-    let github_repo = get_kv_key("github_repo").await?;
-    let github_repo = github_repo.split("/").collect::<Vec<_>>();
-    if github_repo.len() != 2 {
-        return Err(eyre!("Expected github_repo in format owner/repository"));
-    }
-    let github_repo_branch = get_kv_key("github_repo_branch").await?;
+    // TODO: list files
 
-    let github_client = octocrab::OctocrabBuilder::new()
-        .personal_token(github_api_key)
-        .build()?;
-    let mut current_branch_list = github_client
-        .repos(github_repo[0], github_repo[1])
-        .list_branches()
-        .per_page(100)
-        .send()
-        .await?;
-    let mut branches = current_branch_list.take_items();
-    while let Ok(Some(mut new_page)) = github_client.get_page(&current_branch_list.next).await {
-        branches.extend(new_page.take_items());
-        current_branch_list = new_page;
-    }
-    if !branches
-        .iter()
-        .find(|x| x.name == github_repo_branch)
-        .is_none()
-    {
-        return Err(eyre!("Branch {} doesn't exist", github_repo_branch));
-    }
-
-    let res: GithubTreeResponse = github_client
-        .get(
-            format!(
-                "/repos/{}/{}/git/trees/{}",
-                github_repo[0], github_repo[1], github_repo_branch
-            ),
-            Some("?recursive=1"),
-        )
-        .await?;
-
-    let github_files = res
-        .tree
-        .into_iter()
-        .filter(|x| x._type == "blob" && x.path.starts_with(&github_repo_path))
-        .map(|x| {
-            x.path
-                .strip_prefix(&format!("{}/", github_repo_path))
-                .ok_or_eyre(format!(
-                    "Expect {} to have prefix {}",
-                    x.path,
-                    format!("{}/", github_repo_path)
-                ))
-                .map(|x| x.to_owned())
-        })
-        .collect::<color_eyre::Result<Vec<String>>>()?;
+    let github_files = vec![];
 
     // OneDrive
-    let token = get_access_token().await?;
+    let token = crate::utils::credentials::get_onenote_credentials().await?;
     let graph_client = GraphClient::new(token);
 
     let onedrive_path = get_kv_key("onedrive_path").await?;

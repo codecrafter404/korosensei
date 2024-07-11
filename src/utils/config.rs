@@ -1,15 +1,45 @@
 use std::{path::PathBuf, str::FromStr};
 
-use graph_rs_sdk::header::HeaderValue;
-use reqwest::Url;
+use reqwest::{header::HeaderValue, Url};
 
-struct Config {}
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub credentials: CredentialConfig,
+    pub audio_sync: Option<AudioSyncConfig>,
+}
+impl Config {
+    pub fn from_environment(audio_sync: bool) -> color_eyre::Result<Config> {
+        Ok(Config {
+            credentials: CredentialConfig::from_environment()?,
+            audio_sync: if audio_sync {
+                Some(AudioSyncConfig::from_environment()?)
+            } else {
+                None
+            },
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CredentialConfig {
+    pub onedrive_access_token_authorization: HeaderValue,
+    pub onedrive_access_token_url: Url,
+}
+
+impl CredentialConfig {
+    pub fn from_environment() -> color_eyre::Result<CredentialConfig> {
+        Ok(CredentialConfig {
+            onedrive_access_token_url: Url::parse(&std::env::var("ONEDRIVE_ACCESS_TOKEN_URL")?)?,
+            onedrive_access_token_authorization: HeaderValue::from_str(&std::env::var(
+                "ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION",
+            )?)?,
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AudioSyncConfig {
     // OneNote
-    pub onedrive_access_token_url: Url,
-    pub onedrive_access_token_authorization: HeaderValue,
     pub onedrive_source_folder: PathBuf,
 
     // Git
@@ -24,10 +54,6 @@ pub struct AudioSyncConfig {
 impl AudioSyncConfig {
     pub fn from_environment() -> color_eyre::Result<AudioSyncConfig> {
         return Ok(AudioSyncConfig {
-            onedrive_access_token_url: Url::parse(&std::env::var("ONEDRIVE_ACCESS_TOKEN_URL")?)?,
-            onedrive_access_token_authorization: HeaderValue::from_str(&std::env::var(
-                "ONEDRIVE_ACCESS_TOKEN_AUTHORIZATION",
-            )?)?,
             onedrive_source_folder: PathBuf::from_str(&std::env::var("ONEDRIVE_SOURCE_FOLDER")?)?,
 
             git_directory: PathBuf::from_str(&std::env::var("GIT_DIRECTORY")?)?,
