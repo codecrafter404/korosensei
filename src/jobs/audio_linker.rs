@@ -1,18 +1,8 @@
-use color_eyre::eyre::{eyre, OptionExt};
-use futures::StreamExt;
-use graph_rs_sdk::{http::HttpResponseExt, GraphClient, ODataQuery};
+use color_eyre::eyre::{eyre, OptionExt as _};
+use futures::StreamExt as _;
+use graph_rs_sdk::{http::HttpResponseExt as _, GraphClient, ODataQuery as _};
 use serde::Deserialize;
-use worker::*;
 
-#[event(scheduled)]
-async fn scheduled(_event: worker::ScheduledEvent, env: Env, _context: ScheduleContext) {
-    match handle_scheduled_event(env).await {
-        Ok(_) => {}
-        Err(why) => {
-            console_error!("Error while handling scheduled event: {:#?}", why);
-        }
-    }
-}
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,20 +41,12 @@ struct GithubTreeResponse {
     url: String,
     tree: Vec<GithubTreeNode>,
 }
-async fn get_kv_key(env: &Env, key: &str) -> color_eyre::Result<String> {
-    let kv = env.kv("kv")?;
-    let res = kv
-        .get(key)
-        .text()
-        .await
-        .map_err(|e| eyre!("{:?}", e))?
-        .ok_or_eyre(format!("expected {} to be set", key))?;
-
-    Ok(res)
+async fn get_kv_key(key: &str) -> color_eyre::Result<String> {
+    unimplemented!()
 }
-async fn handle_scheduled_event(env: Env) -> color_eyre::Result<()> {
+async fn handle_scheduled_event() -> color_eyre::Result<()> {
     // GitHub
-    let github_repo_path = get_kv_key(&env, "github_repo_path").await?;
+    let github_repo_path = get_kv_key("github_repo_path").await?;
     let github_repo_path = github_repo_path
         .strip_prefix("/")
         .unwrap_or(&github_repo_path)
@@ -75,13 +57,13 @@ async fn handle_scheduled_event(env: Env) -> color_eyre::Result<()> {
         .unwrap_or(&github_repo_path)
         .to_owned();
 
-    let github_api_key = get_kv_key(&env, "github_api_key").await?;
-    let github_repo = get_kv_key(&env, "github_repo").await?;
+    let github_api_key = get_kv_key("github_api_key").await?;
+    let github_repo = get_kv_key("github_repo").await?;
     let github_repo = github_repo.split("/").collect::<Vec<_>>();
     if github_repo.len() != 2 {
         return Err(eyre!("Expected github_repo in format owner/repository"));
     }
-    let github_repo_branch = get_kv_key(&env, "github_repo_branch").await?;
+    let github_repo_branch = get_kv_key("github_repo_branch").await?;
 
     let github_client = octocrab::OctocrabBuilder::new()
         .personal_token(github_api_key)
@@ -132,10 +114,10 @@ async fn handle_scheduled_event(env: Env) -> color_eyre::Result<()> {
         .collect::<color_eyre::Result<Vec<String>>>()?;
 
     // OneDrive
-    let token = get_access_token(env.clone()).await?;
+    let token = get_access_token().await?;
     let graph_client = GraphClient::new(token);
 
-    let onedrive_path = get_kv_key(&env, "onedrive_path").await?;
+    let onedrive_path = get_kv_key("onedrive_path").await?;
 
     let mut onedrive_path = onedrive_path
         .strip_suffix("/")
@@ -189,10 +171,10 @@ async fn handle_scheduled_event(env: Env) -> color_eyre::Result<()> {
             .await
         {
             Ok(_) => {
-                console_log!("Synced file onedrive:{} -> {}", onedrive_path, github_path);
+                log::info!("Synced file onedrive:{} -> {}", onedrive_path, github_path);
             }
             Err(why) => {
-                console_error!(
+                log::error!(
                     "Error while syncing file (onedrive:{} -> {}): {:?}",
                     onedrive_path,
                     github_path,
@@ -202,28 +184,4 @@ async fn handle_scheduled_event(env: Env) -> color_eyre::Result<()> {
         }
     }
     Ok(())
-}
-
-async fn get_access_token(env: Env) -> color_eyre::Result<String> {
-    let url = get_kv_key(&env, "onedrive_access_token_url").await?;
-    let authorization_header = get_kv_key(&env, "onedrive_access_token_authorization").await?;
-    let client = reqwest::Client::new();
-    let res = client
-        .get(url)
-        .header("Authorization", authorization_header)
-        .send()
-        .await
-        .map_err(|e| worker::Error::RustError(format!("get_access_token_res: {:?}", e).into()))?;
-    if !res.status().is_success() {
-        return Err(eyre!(
-            "get_access_token_res; access_token_url returned {}: {:?}",
-            res.status().as_u16(),
-            res.text().await
-        ));
-    }
-    let text = res
-        .text()
-        .await
-        .map_err(|e| eyre!("get_access_token: Failed to read response text: {:?}", e))?;
-    Ok(text)
 }

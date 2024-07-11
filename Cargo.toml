@@ -1,23 +1,10 @@
 [package]
-name = "onedrive-github-linker"
+name = "korosensei"
 version = "0.1.0"
 edition = "2021"
 authors = [ "Codecrafter_404 <codecrafter404@github.com>" ]
 
-[package.metadata.release]
-release = false
-
-# https://github.com/rustwasm/wasm-pack/issues/1247
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
-
-[lib]
-crate-type = ["cdylib"]
-
 [dependencies]
-worker = { version="0.3.0" }
-worker-macros = { version="0.3.0" }
-console_error_panic_hook = { version = "0.1.7" }
 reqwest = {version = "0.12.5"}
 serde = {version = "1.0.204", features = ["derive"]}
 serde_json = "1.0.120"
@@ -25,3 +12,6 @@ graph-rs-sdk = {version = "2.0.0", features = ["rustls-tls"]}
 color-eyre = "0.6.3"
 octocrab = {version = "0.38.0", features = ["rustls"]}
 futures = "0.3.30"
+tokio = {version = "1.38.0", features = ["macros"]}
+log = "0.4.22"
+env_logger = "0.11.3"
