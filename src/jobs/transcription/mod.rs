@@ -8,6 +8,7 @@ use crate::utils::config::Config;
 
 mod file_discovery;
 mod file_meta;
+mod markdown;
 
 pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
     //TODO: determine which files have to be transcripted -> transcribe them

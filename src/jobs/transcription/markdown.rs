@@ -1,3 +1,4 @@
+use std::ops::{Deref, Sub as _};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -21,72 +22,53 @@ pub(crate) async fn discorver_correlating_files(
     //2. extract only the affected headlines (affected headline = headline changed / new_headline / something under the headline has changed)
     //return the correlating files array
 
-    let commits = get_related_commits(&config, &time)?;
+    let commits = get_related_commits(&config, time.clone())?;
 
     unimplemented!();
 }
 
-fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<i32>> {
-    // git diff --unified=0 b835f98~1 b835f98
-
+fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(PathBuf, i32)>> {
     let res = git::git_command_wrapper(
-        &[
-            "diff",
-            "--unified=0",
-            &format!("{}~1", commit_id),
-            commit_id,
-        ],
+        &["diff", "-p", &format!("{}~1", commit_id), commit_id],
         &config.git_directory,
         config,
     )?;
     git::wrap_git_command_error(&res)?;
-
-    let lines = res
-        .std_out
-        .split("\n")
-        .map(|x| x.to_owned())
-        .collect::<Vec<_>>();
-
-    let mut changed_lines = Vec::new();
-
-    for (idx, line) in lines.into_iter().enumerate() {
-        // detect new block
-        if !line.starts_with("index ") {
+    let patches = patch::Patch::from_multiple(&res.std_out);
+    if let Ok(patches) = patches {
+        let lines = get_changed_lines(&patches)?;
+        return Ok(lines);
+    }
+    return Err(eyre!("Failed to parse patches {:?}", patches));
+}
+fn get_changed_lines(patches: &Vec<patch::Patch>) -> color_eyre::Result<Vec<(PathBuf, i32)>> {
+    let mut file_changes: Vec<(PathBuf, i32)> = vec![];
+    for patch in patches {
+        let path = patch.new.path.to_string().trim().to_owned();
+        if path == "/dev/null" {
             continue;
         }
+        let path = PathBuf::from_str(&path)?;
 
-        let current_file: String = lines[line + 2];
-        assert!(current_file.starts_with("+++ "));
-
-        let current_file = current_file
-            .strip_prefix("+++ ")
-            .ok_or_eyre("Expected prefix +++<space>")?;
-        if !current_file.starts_with("b") {
-            // file has been deleted
-            debug_assert_eq!(current_file, "/dev/null");
-            continue;
-        }
-        let current_file = &current_file[1..];
-
-        let current_file = PathBuf::from_str(current_file)
-            .wrap_err(format!("Tried to parse path {}", current_file))?;
-
-        let mut current_line = idx;
-        while (current_file + 1) < lines.len() && !lines[current_file + 1].starts_with("index ") {
-            current_file += 1;
-            let line: &String = lines[current_file];
-            if let Some((_, opt_op, _, _, b_line, b_count)) = lazy_regex::regex_captures!(
-                "^([\\+\\-]*)@@ \\-(\\d*)(,\\d*){0,1} \\+(\\d*)([,\\d]*){0,1} @@(?! index).*$",
-                line
-            ) {
-                if b_count >= 1 { // otherwise lines have only been deleted
+        for hunk in &patch.hunks {
+            let mut current_line = (hunk.new_range.start - 1) as i32;
+            current_line -= 1; // starting point
+            for line in &hunk.lines {
+                match line {
+                    patch::Line::Add(_) => {
+                        current_line += 1;
+                        file_changes.push((path.clone(), current_line));
+                    }
+                    patch::Line::Remove(_) => {}
+                    patch::Line::Context(_) => current_line += 1,
                 }
             }
         }
     }
 
-    unimplemented!()
+    return Ok(file_changes);
 }
+
 /// return: those paths are only relative
 fn get_commit_files(config: &Config, commit_id: &str) -> color_eyre::Result<Vec<PathBuf>> {
     //TODO:  git diff-tree --no-commit-id --name-only bcabfc59b2faec296d3b2804945db1cbf8665629 -r
@@ -108,13 +90,14 @@ fn get_commit_files(config: &Config, commit_id: &str) -> color_eyre::Result<Vec<
         .std_out
         .split("\n")
         .map(|x| PathBuf::from_str(x))
-        .collect::<Result<Vec<_>>>()
+        .collect::<Result<Vec<_>, _>>()
         .wrap_err("Expected to receive valid paths")?;
     Ok(res)
 }
-fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<Vec<String>> {
+fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Result<Vec<String>> {
     let transcription_config = config
         .transcription
+        .clone()
         .ok_or_eyre("Expected transcription config to be loaded")?;
 
     let _ = git::check_out_create_branch(&transcription_config.git_target_branch, config)?;
@@ -156,7 +139,7 @@ fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<
         }
     }
 
-    let res: Option<Vec<(String, DateTime<Utc>)>> = res
+    let res: Vec<(String, DateTime<Utc>)> = res
         .std_out
         .split("\n")
         .filter_map(|x| {
@@ -168,22 +151,56 @@ fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<
         })
         .map(|(commit_id, timestamp)| {
             (
-                commit_id,
+                commit_id.to_owned(),
                 DateTime::from_timestamp(
                     timestamp
                         .parse()
                         .expect("Expected timestamp to be only numbers"),
                     0,
-                ),
+                )
+                .unwrap_or_default(),
             )
         })
         .collect();
 
-    let cutoff_time = time - transcription_config.time_window;
-    let res = res.ok_or_eyre("Expected the git unix timestamps to be parsable")?;
+    let cutoff_time = time.sub(transcription_config.time_window);
+    let res = res;
     let res = res
         .into_iter()
-        .filter(|(_, b)| b >= cutoff_time)
+        .filter(|(_, b)| *b >= cutoff_time)
+        .map(|x| x.0)
         .collect::<Vec<_>>();
     Ok(res)
+}
+
+#[test]
+fn test_get_changed_lines() {
+    let patch = "diff --git a/abc.txt b/abc.txt\
+index a08dfdf..920c441 100644
+--- a/abc.txt
++++ b/abc.txt
+@@ -1,11 +1,11 @@
+ a
+ c
+-c
++a
+ e
+ f
+-f2
++22
+ f3
+-f4
++34
+ g
+ h
+ h2
+";
+    let patch = patch::Patch::from_multiple(&patch).unwrap();
+    let res = vec![
+        (PathBuf::from_str("/abc.txt").unwrap(), 2),
+        (PathBuf::from_str("/abc.txt").unwrap(), 5),
+        (PathBuf::from_str("/abc.txt").unwrap(), 7),
+    ];
+
+    assert_eq!(get_changed_lines(&patch).unwrap(), res);
 }
