@@ -7,6 +7,7 @@ use color_eyre::eyre::{eyre, Context, OptionExt};
 
 use crate::utils::config::Config;
 use crate::utils::git::{self, git_command_wrapper};
+use itertools::Itertools;
 
 pub(crate) struct CorrelatingFile {
     path: PathBuf,
@@ -23,11 +24,14 @@ pub(crate) async fn discorver_correlating_files(
     //return the correlating files array
 
     let commits = get_related_commits(&config, time.clone())?;
+    for commit in commits {
+        let files = diff_commit(&commit, config)?;
+    }
 
     unimplemented!();
 }
 
-fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(PathBuf, i32)>> {
+fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(PathBuf, Vec<i32>)>> {
     let res = git::git_command_wrapper(
         &["diff", "-p", &format!("{}~1", commit_id), commit_id],
         &config.git_directory,
@@ -36,7 +40,9 @@ fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(Path
     git::wrap_git_command_error(&res)?;
     let patches = patch::Patch::from_multiple(&res.std_out);
     if let Ok(patches) = patches {
-        let lines = get_changed_lines(&patches)?;
+        let mut lines = get_changed_lines(&patches)?;
+        lines.dedup();
+
         return Ok(lines);
     }
     return Err(eyre!("Failed to parse patches {:?}", patches));
@@ -48,6 +54,9 @@ fn get_changed_lines(patches: &Vec<patch::Patch>) -> color_eyre::Result<Vec<(Pat
         if path == "/dev/null" {
             continue;
         }
+        let path = path
+            .strip_prefix("b/")
+            .ok_or_eyre("Expected git patch to have a b/ path prefix")?;
         let path = PathBuf::from_str(&path)?;
 
         for hunk in &patch.hunks {
@@ -68,31 +77,41 @@ fn get_changed_lines(patches: &Vec<patch::Patch>) -> color_eyre::Result<Vec<(Pat
 
     return Ok(file_changes);
 }
+fn get_related_markdown_headings(
+    line: u64,
+    content: &str,
+    include_parents: bool,
+) -> color_eyre::Result<Vec<u64>> {
+    let lines = content.split("\n").collect::<Vec<_>>();
+    if line as usize >= lines.len() {
+        return Err(eyre!("searchline out of index"));
+    }
+    let mut lines = lines
+        .into_iter()
+        .take((line + 1) as usize)
+        .collect::<Vec<_>>();
+    lines.reverse();
+    println!("{:?}", lines);
 
-/// return: those paths are only relative
-fn get_commit_files(config: &Config, commit_id: &str) -> color_eyre::Result<Vec<PathBuf>> {
-    //TODO:  git diff-tree --no-commit-id --name-only bcabfc59b2faec296d3b2804945db1cbf8665629 -r
+    let mut my_level = usize::MAX;
+    let mut res = vec![];
+    for (idx, line_str) in lines.into_iter().enumerate() {
+        if let Some((_, level, _)) = lazy_regex::regex_captures!("^[\\s>]*(#{1,})(.*)$", line_str) {
+            println!("{} [{}]", level, my_level);
+            let level = level.len();
+            if my_level > level {
+                my_level = level;
+                res.push(line - idx as u64);
+            }
+            if !include_parents {
+                break;
+            } else if my_level <= 1 {
+                break;
+            }
+        }
+    }
 
-    let res = git::git_command_wrapper(
-        &[
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            commit_id,
-            "-r",
-        ],
-        &config.git_directory,
-        config,
-    )?;
-    git::wrap_git_command_error(&res)?;
-
-    let res = res
-        .std_out
-        .split("\n")
-        .map(|x| PathBuf::from_str(x))
-        .collect::<Result<Vec<_>, _>>()
-        .wrap_err("Expected to receive valid paths")?;
-    Ok(res)
+    return Ok(res);
 }
 fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Result<Vec<String>> {
     let transcription_config = config
@@ -101,21 +120,6 @@ fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Resu
         .ok_or_eyre("Expected transcription config to be loaded")?;
 
     let _ = git::check_out_create_branch(&transcription_config.git_target_branch, config)?;
-
-    //TODO: git log --pretty="format:%H %ct"
-    //example output:
-    //  <commit-hash>                           <UNIX-TIME>
-    // b0edc6539e77ad73bdc26f1297137ec8ce33b808 1720786892
-    // a1b06e8eca7ede4080e01e0ce20de85a7b70d5cf 1720784184
-    // 602c07096d316622c40e001fbd00a9647fd8d4f3 1720737103
-    // 09c61c03e78c5e8e1344f97d35c74018fe83507d 1720733077
-    // 708033b856f6f4795cec84be33258896a78ac3a8 1720728602
-    // cd77c2c3a92709ff0c1b608e02582a7bbbb3a6e9 1720723871
-    // 2ed1f8f59afaeb70d42e8f7b8da82336c15ff19d 1720720206
-    // b0ce59e83500f147825d2788f9f6593afa73cbcf 1720712972
-    // 39ef6b0cf48365985eb8c9b308dcfe441d566430 1720628188
-    // 3a7763c5da286ae7fce37fde71797cba5f39cf0a 1720623611
-    // 887fdc6369428a794e8eb7875df85450faa8f882 1720608820
 
     let res = git::git_command_wrapper(
         &["log", "--pretty='format:%H %ct'"],
@@ -175,7 +179,7 @@ fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Resu
 
 #[test]
 fn test_get_changed_lines() {
-    let patch = "diff --git a/abc.txt b/abc.txt\
+    let patch = "diff --git a/abc.txt b/abc.txt
 index a08dfdf..920c441 100644
 --- a/abc.txt
 +++ b/abc.txt
@@ -197,10 +201,43 @@ index a08dfdf..920c441 100644
 ";
     let patch = patch::Patch::from_multiple(&patch).unwrap();
     let res = vec![
-        (PathBuf::from_str("/abc.txt").unwrap(), 2),
-        (PathBuf::from_str("/abc.txt").unwrap(), 5),
-        (PathBuf::from_str("/abc.txt").unwrap(), 7),
+        (PathBuf::from_str("abc.txt").unwrap(), 2),
+        (PathBuf::from_str("abc.txt").unwrap(), 5),
+        (PathBuf::from_str("abc.txt").unwrap(), 7),
     ];
 
     assert_eq!(get_changed_lines(&patch).unwrap(), res);
+}
+
+#[test]
+fn test_markdown_heading_parser() {
+    let input = "content
+# 1.0 Heading
+content
+    ## 1.2 Heading
+content
+## 1.3 Heading
+content
+>
+>   # Heading
+>   content
+>   ## second heading
+>   content
+";
+    let res_pattern = [
+        (0, false, vec![]),
+        (1, true, vec![1]),
+        (4, false, vec![3]),
+        (4, true, vec![3, 1]),
+        (8, true, vec![8]),
+        (11, true, vec![10, 8]),
+    ];
+    for (line, parent, res) in res_pattern {
+        assert_eq!(
+            get_related_markdown_headings(line, &input, parent).unwrap(),
+            res,
+            "Parsing line {}",
+            line
+        );
+    }
 }
