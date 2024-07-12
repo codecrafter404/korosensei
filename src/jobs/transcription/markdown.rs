@@ -1,37 +1,68 @@
-use std::ops::{Deref, Sub as _};
+use std::ops::Sub as _;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use chrono::{Date, DateTime, Utc};
-use color_eyre::eyre::{eyre, Context, OptionExt};
+use chrono::{DateTime, Utc};
+use color_eyre::eyre::{eyre, OptionExt};
 
 use crate::utils::config::Config;
-use crate::utils::git::{self, git_command_wrapper};
+use crate::utils::git::{self};
 use itertools::Itertools;
 
 pub(crate) struct CorrelatingFile {
     path: PathBuf,
-    headlines: Vec<u32>,
+    headlines: Vec<u64>,
 }
 
 pub(crate) async fn discorver_correlating_files(
     time: DateTime<Utc>,
     config: &Config,
 ) -> color_eyre::Result<Vec<CorrelatingFile>> {
-    //TODO::
-    //1. search all the files that have been changed the timerange (git log? -> find commits +/- n minutes)
-    //2. extract only the affected headlines (affected headline = headline changed / new_headline / something under the headline has changed)
-    //return the correlating files array
+    let transcription_config = config
+        .transcription
+        .clone()
+        .ok_or_eyre("Expected transcription config to be initalized")?;
 
+    // gets all commits that happend in the timewindow around time
     let commits = get_related_commits(&config, time.clone())?;
+    let mut changed_files = vec![];
     for commit in commits {
         let files = diff_commit(&commit, config)?;
+        changed_files.extend_from_slice(&files);
+    }
+    let changed_files = changed_files
+        .into_iter()
+        .chunk_by(|x| x.0.clone())
+        .into_iter()
+        .map(|(a, b)| (a, b.into_iter().map(|x| x.1).collect_vec()))
+        .collect_vec();
+
+    let mut res = vec![];
+
+    for (path, lines) in changed_files {
+        let mut headers = vec![];
+        let full_path = config.git_directory.join(&path);
+        let content = std::fs::read_to_string(full_path)?;
+        for line in lines {
+            headers.extend_from_slice(&get_related_markdown_headings(
+                line as u64,
+                &content,
+                transcription_config.include_parent,
+            )?)
+        }
+
+        headers.dedup();
+        res.push(CorrelatingFile {
+            path,
+            headlines: headers,
+        })
     }
 
-    unimplemented!();
+    Ok(res)
 }
 
-fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(PathBuf, Vec<i32>)>> {
+/// this function extracts all changed files and on which line the files have been changed
+fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(PathBuf, i32)>> {
     let res = git::git_command_wrapper(
         &["diff", "-p", &format!("{}~1", commit_id), commit_id],
         &config.git_directory,
@@ -42,7 +73,6 @@ fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<(Path
     if let Ok(patches) = patches {
         let mut lines = get_changed_lines(&patches)?;
         lines.dedup();
-
         return Ok(lines);
     }
     return Err(eyre!("Failed to parse patches {:?}", patches));
@@ -77,6 +107,8 @@ fn get_changed_lines(patches: &Vec<patch::Patch>) -> color_eyre::Result<Vec<(Pat
 
     return Ok(file_changes);
 }
+/// gets the nearest (direction: up) heading
+/// when `include_parents == true` then also the next parent headings
 fn get_related_markdown_headings(
     line: u64,
     content: &str,

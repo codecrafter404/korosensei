@@ -47,6 +47,7 @@ pub struct TranscriptionConfig {
     pub git_target_branch: String,
     pub git_source_path: PathBuf,
     pub time_window: Duration, // past n minutes
+    pub include_parent: bool,
 }
 impl TranscriptionConfig {
     pub fn from_environment() -> color_eyre::Result<TranscriptionConfig> {
@@ -68,6 +69,9 @@ impl TranscriptionConfig {
                     .unwrap_or("100".to_owned())
                     .parse::<i64>()
                     .wrap_err("Failed to parse TRANSCRIPTION_TIME_WINDOW")?,
+            ),
+            include_parent: vec!["y".to_owned(), "yes".to_owned(), "1".to_owned()].contains(
+                &dotenv::var("TRANSCRIPTION_AUDIO_SOURCE_DIR").unwrap_or("no".to_owned()),
             ),
         })
     }
