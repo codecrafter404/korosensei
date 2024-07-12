@@ -26,8 +26,65 @@ pub(crate) async fn discorver_correlating_files(
     unimplemented!();
 }
 
-fn diff_file(commit_id: &str, file: PathBuf) -> color_eyre::Result<Vec<i32>> {
-    //TODO: git diff --unified=0 e32cc30~1 e32cc30 .\abc.txt
+fn diff_commit(commit_id: &str, config: &Config) -> color_eyre::Result<Vec<i32>> {
+    // git diff --unified=0 b835f98~1 b835f98
+
+    let res = git::git_command_wrapper(
+        &[
+            "diff",
+            "--unified=0",
+            &format!("{}~1", commit_id),
+            commit_id,
+        ],
+        &config.git_directory,
+        config,
+    )?;
+    git::wrap_git_command_error(&res)?;
+
+    let lines = res
+        .std_out
+        .split("\n")
+        .map(|x| x.to_owned())
+        .collect::<Vec<_>>();
+
+    let mut changed_lines = Vec::new();
+
+    for (idx, line) in lines.into_iter().enumerate() {
+        // detect new block
+        if !line.starts_with("index ") {
+            continue;
+        }
+
+        let current_file: String = lines[line + 2];
+        assert!(current_file.starts_with("+++ "));
+
+        let current_file = current_file
+            .strip_prefix("+++ ")
+            .ok_or_eyre("Expected prefix +++<space>")?;
+        if !current_file.starts_with("b") {
+            // file has been deleted
+            debug_assert_eq!(current_file, "/dev/null");
+            continue;
+        }
+        let current_file = &current_file[1..];
+
+        let current_file = PathBuf::from_str(current_file)
+            .wrap_err(format!("Tried to parse path {}", current_file))?;
+
+        let mut current_line = idx;
+        while (current_file + 1) < lines.len() && !lines[current_file + 1].starts_with("index ") {
+            current_file += 1;
+            let line: &String = lines[current_file];
+            if let Some((_, opt_op, _, _, b_line, b_count)) = lazy_regex::regex_captures!(
+                "^([\\+\\-]*)@@ \\-(\\d*)(,\\d*){0,1} \\+(\\d*)([,\\d]*){0,1} @@(?! index).*$",
+                line
+            ) {
+                if b_count >= 1 { // otherwise lines have only been deleted
+                }
+            }
+        }
+    }
+
     unimplemented!()
 }
 /// return: those paths are only relative
