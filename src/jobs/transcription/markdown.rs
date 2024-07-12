@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use chrono::{Date, DateTime, Utc};
+use color_eyre::eyre::{eyre, OptionExt};
 
 use crate::utils::config::Config;
 use crate::utils::git;
@@ -22,6 +23,12 @@ pub(crate) async fn discorver_correlating_files(
 }
 
 async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<Vec<String>> {
+    let transcription_config = config
+        .transcription
+        .ok_or_eyre("Expected transcription config to be loaded")?;
+
+    let _ = git::check_out_create_branch(&transcription_config.git_target_branch, config)?;
+
     //TODO: git log --pretty="format:%H %ct"
     //example output:
     //  <commit-hash>                           <UNIX-TIME>
@@ -40,5 +47,43 @@ async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::R
     let res = git::git_command_wrapper(&[], &config.git_directory, &config)?;
     git::wrap_git_command_error(&res)?;
 
-    unimplemented!()
+    if res.std_out.starts_with("fatal:") {
+        if lazy_regex::regex_is_match!(
+            "fatal: your current branch '[\\w]*' does not have any commits yet",
+            &res.std_out
+        ) {
+            log::warn!(
+                "Git branch '{}' has no commits; skipping",
+                transcription_config.git_target_branch
+            );
+            return Ok(vec![]);
+        } else {
+            return Err(eyre!("Git returned error: '{}'", res.std_out));
+        }
+    }
+
+    let res: Vec<(String, _)> = res
+        .std_out
+        .split("\n")
+        .filter_map(|x| {
+            let line = x.split(" ").collect::<Vec<_>>();
+            if line.len() != 2 {
+                return None;
+            }
+            Some((line[0], line[1]))
+        })
+        .map(|(commit_id, timestamp)| {
+            (
+                commit_id,
+                DateTime::from_timestamp(
+                    timestamp
+                        .parse()
+                        .expect("Expected timestamp to be only numbers"),
+                    0,
+                ),
+            )
+        })
+        .collect();
+
+    return res;
 }
