@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::utils::{
     config::Config,
-    git::{git_command_wrapper, wrap_git_command_error, GIT_AUTHOR},
+    git::{check_out_create_branch, git_command_wrapper, wrap_git_command_error, GIT_AUTHOR},
 };
 
 #[derive(Debug, Deserialize)]
@@ -38,25 +38,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
 
     //TODO: validate that the branch exists
 
-    let res = git_command_wrapper(&["branch", "--list", "--no-color"], &github_repo_root)?;
-    wrap_git_command_error(&res)?;
-    let branches: Vec<_> = res
-        .std_out
-        .split("\n")
-        .filter(|x| !x.is_empty())
-        .map(|x| x[2..].to_owned())
-        .collect(); // remove the 2 colums displaying the current status
-    if !branches.contains(&audio_sync.git_branch) {
-        log::info!("Creating empty branch {}", audio_sync.git_branch);
-        let res = git_command_wrapper(
-            &["switch", "--orphan", &audio_sync.git_branch],
-            &github_repo_root,
-        )?;
-        wrap_git_command_error(&res)?
-    } else {
-        let res = git_command_wrapper(&["checkout", &audio_sync.git_branch], &github_repo_root)?;
-        wrap_git_command_error(&res)?;
-    }
+    check_out_create_branch(&audio_sync.git_branch, &config)?;
     let git_target_path = github_repo_root.join(
         audio_sync
             .git_destination_folder
@@ -187,7 +169,11 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
 
     if synced_files >= 1 {
         // stage & commit changes
-        wrap_git_command_error(&git_command_wrapper(&["add", "*"], &github_repo_root)?)?;
+        wrap_git_command_error(&git_command_wrapper(
+            &["add", "*"],
+            &github_repo_root,
+            &config,
+        )?)?;
         wrap_git_command_error(&git_command_wrapper(
             &[
                 "commit",
@@ -197,6 +183,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
                 GIT_AUTHOR,
             ],
             &github_repo_root,
+            &config,
         )?)?;
         log::info!("Successfully commited {} links", synced_files);
     } else {

@@ -11,6 +11,8 @@ pub struct Config {
     pub audio_sync: Option<AudioSyncConfig>,
     pub transcription: Option<TranscriptionConfig>,
     pub git_directory: PathBuf,
+    pub timezone: chrono_tz::Tz,
+    pub git_exec: PathBuf,
 }
 impl Config {
     pub fn from_environment(audio_sync: bool, transcription: bool) -> color_eyre::Result<Config> {
@@ -21,14 +23,18 @@ impl Config {
             } else {
                 None
             },
+            git_directory: PathBuf::from_str(
+                &dotenv::var("GIT_DIRECTORY").wrap_err("Expected GIT_DIRECTORY to be set")?,
+            )?,
+            timezone: dotenv::var("TIMEZONE")
+                .wrap_err("Expected TIMEZONE to be set")?
+                .parse()?,
             transcription: if transcription {
                 Some(TranscriptionConfig::from_environment()?)
             } else {
                 None
             },
-            git_directory: PathBuf::from_str(
-                &dotenv::var("GIT_DIRECTORY").wrap_err("Expected GIT_DIRECTORY to be set")?,
-            )?,
+            git_exec: PathBuf::from_str(&dotenv::var("GITPATH")?).unwrap_or(PathBuf::new()),
         })
     }
 }
