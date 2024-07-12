@@ -42,7 +42,9 @@ impl Config {
 #[derive(Debug, Clone)]
 pub struct TranscriptionConfig {
     pub transcription_script_search_path: PathBuf,
-    pub git_branch: String,
+    pub git_source_branch: String,
+    pub git_target_branch: String,
+    pub git_source_path: PathBuf,
 }
 impl TranscriptionConfig {
     pub fn from_environment() -> color_eyre::Result<TranscriptionConfig> {
@@ -51,8 +53,14 @@ impl TranscriptionConfig {
                 &dotenv::var("TRANSCRIPTION_SCRIPT_SEARCH_PATH")
                     .wrap_err("Expected TRANSCRIPTION_SCRIPT_SEARCH_PATH to be set")?,
             )?,
-            git_branch: dotenv::var("TRANSCRIPTION_GIT_BRANCH")
+            git_source_branch: dotenv::var("TRANSCRIPTION_AUDIO_BRANCH")
+                .wrap_err("Expected TRANSCRIPTION_AUDIO_BRANCH to be set")?,
+            git_target_branch: dotenv::var("TRANSCRIPTION_GIT_BRANCH")
                 .wrap_err("Expected TRANSCRIPTION_GIT_BRANCH to be set")?,
+            git_source_path: PathBuf::from_str(
+                &dotenv::var("TRANSCRIPTION_AUDIO_SOURCE_DIR")
+                    .wrap_err("Expected TRANSCRIPTION_AUDIO_SOURCE_DIR to be set")?,
+            )?,
         })
     }
 }
@@ -93,15 +101,14 @@ pub struct AudioSyncConfig {
 impl AudioSyncConfig {
     pub fn from_environment() -> color_eyre::Result<AudioSyncConfig> {
         return Ok(AudioSyncConfig {
-            onedrive_source_folder: dotenv::var("ONEDRIVE_SOURCE_FOLDER")
-                .wrap_err("Expected ONEDRIVE_SOURCE_FOLDER to be set")?,
+            onedrive_source_folder: dotenv::var("ONEDRIVE_SOURCE_DIR")
+                .wrap_err("Expected ONEDRIVE_SOURCE_DIR to be set")?,
 
             git_branch: dotenv::var("AUDIO_GIT_BRANCH")
                 .wrap_err("Expected AUDIO_GIT_BRANCH to be set")?,
 
             git_destination_folder: PathBuf::from_str(
-                &dotenv::var("GIT_DESTINATION_FOLDER")
-                    .wrap_err("Expected GIT_DESTINATION_FOLDER to be set")?,
+                &dotenv::var("AUDIO_TARGET_DIR").wrap_err("Expected AUDIO_TARGET_DIR to be set")?,
             )?,
 
             permitted_file_types: dotenv::var("PERMITTED_FILE_TYPES")

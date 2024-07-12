@@ -5,8 +5,9 @@ use std::{
 };
 
 use crate::utils::git;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use color_eyre::eyre::OptionExt;
+use graph_rs_sdk::certificate_based_auth_configuration;
 use reqwest::{header::HeaderValue, Url};
 
 use crate::utils::config::{Config, CredentialConfig};
@@ -18,8 +19,12 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
     unimplemented!();
 }
 
+fn discover_files(path: &Path) -> color_eyre::Result<Vec<PathBuf>> {
+    unimplemented!()
+}
+
 // first try through the filename
-// second try through git blame
+// second try through git
 fn extract_file_change_date(
     file: &Path,
     conf: &Config,
@@ -30,23 +35,20 @@ fn extract_file_change_date(
         .to_str()
         .unwrap_or_default();
 
-    // prefer file name
-
     if let Some(res) = match_date_from_name(name, conf)? {
         return Ok(res);
     }
 
-    //TODO: git blame
-
-    unimplemented!()
+    Ok(match_date_from_git(file, conf)?)
 }
-fn match_file_from_git(file: &Path, conf: &Config) -> color_eyre::Result<chrono::DateTime<Utc>> {
+fn match_date_from_git(file: &Path, conf: &Config) -> color_eyre::Result<chrono::DateTime<Utc>> {
     let transcription_config = conf
         .transcription
         .clone()
         .ok_or_eyre("Expected transcription to be configured")?;
 
-    let _ = crate::utils::git::check_out_create_branch(&transcription_config.git_branch, &conf)?;
+    let _ =
+        crate::utils::git::check_out_create_branch(&transcription_config.git_source_branch, &conf)?;
 
     let res = git::git_command_wrapper(
         &[
@@ -62,7 +64,15 @@ fn match_file_from_git(file: &Path, conf: &Config) -> color_eyre::Result<chrono:
 
     let commit_id = res.std_out;
 
-    unimplemented!();
+    let res = git::git_command_wrapper(
+        &["show", &commit_id, "--quiet", "--pretty='format:%ct'"],
+        &conf.git_directory,
+        &conf,
+    )?;
+    git::wrap_git_command_error(&res)?;
+    let date = chrono::DateTime::from_timestamp(res.std_out.parse()?, 0)
+        .ok_or_eyre("Expected the git commit date to be a unix timestamp")?;
+    return Ok(date);
 }
 
 fn match_date_from_name(name: &str, conf: &Config) -> color_eyre::Result<Option<DateTime<Utc>>> {
