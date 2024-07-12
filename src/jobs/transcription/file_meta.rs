@@ -1,31 +1,18 @@
 use std::{
     path::{Path, PathBuf},
-    str::FromStr,
-    time::SystemTime,
+    str::FromStr as _,
 };
 
-use crate::utils::git;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use crate::utils::{
+    config::{Config, CredentialConfig},
+    git,
+};
+use chrono::{DateTime, TimeZone, Utc};
 use color_eyre::eyre::OptionExt;
-use graph_rs_sdk::certificate_based_auth_configuration;
 use reqwest::{header::HeaderValue, Url};
-
-use crate::utils::config::{Config, CredentialConfig};
-
-pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
-    //TODO: determine which files have to be transcripted -> transcribe them
-
-    //TODO: link the transcriptions to corresponding notes
-    unimplemented!();
-}
-
-fn discover_files(path: &Path) -> color_eyre::Result<Vec<PathBuf>> {
-    unimplemented!()
-}
-
 // first try through the filename
 // second try through git
-fn extract_file_change_date(
+pub(crate) fn extract_file_change_date(
     file: &Path,
     conf: &Config,
 ) -> color_eyre::Result<chrono::DateTime<Utc>> {
