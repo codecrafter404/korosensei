@@ -1,10 +1,11 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use chrono::{Date, DateTime, Utc};
-use color_eyre::eyre::{eyre, OptionExt};
+use color_eyre::eyre::{eyre, Context, OptionExt};
 
 use crate::utils::config::Config;
-use crate::utils::git;
+use crate::utils::git::{self, git_command_wrapper};
 
 pub(crate) struct CorrelatingFile {
     path: PathBuf,
@@ -19,10 +20,42 @@ pub(crate) async fn discorver_correlating_files(
     //1. search all the files that have been changed the timerange (git log? -> find commits +/- n minutes)
     //2. extract only the affected headlines (affected headline = headline changed / new_headline / something under the headline has changed)
     //return the correlating files array
+
+    let commits = get_related_commits(&config, &time)?;
+
     unimplemented!();
 }
 
-async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<Vec<String>> {
+fn diff_file(commit_id: &str, file: PathBuf) -> color_eyre::Result<Vec<i32>> {
+    //TODO: git diff --unified=0 e32cc30~1 e32cc30 .\abc.txt
+    unimplemented!()
+}
+/// return: those paths are only relative
+fn get_commit_files(config: &Config, commit_id: &str) -> color_eyre::Result<Vec<PathBuf>> {
+    //TODO:  git diff-tree --no-commit-id --name-only bcabfc59b2faec296d3b2804945db1cbf8665629 -r
+
+    let res = git::git_command_wrapper(
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            commit_id,
+            "-r",
+        ],
+        &config.git_directory,
+        config,
+    )?;
+    git::wrap_git_command_error(&res)?;
+
+    let res = res
+        .std_out
+        .split("\n")
+        .map(|x| PathBuf::from_str(x))
+        .collect::<Result<Vec<_>>>()
+        .wrap_err("Expected to receive valid paths")?;
+    Ok(res)
+}
+fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::Result<Vec<String>> {
     let transcription_config = config
         .transcription
         .ok_or_eyre("Expected transcription config to be loaded")?;
@@ -44,7 +77,11 @@ async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::R
     // 3a7763c5da286ae7fce37fde71797cba5f39cf0a 1720623611
     // 887fdc6369428a794e8eb7875df85450faa8f882 1720608820
 
-    let res = git::git_command_wrapper(&[], &config.git_directory, &config)?;
+    let res = git::git_command_wrapper(
+        &["log", "--pretty='format:%H %ct'"],
+        &config.git_directory,
+        &config,
+    )?;
     git::wrap_git_command_error(&res)?;
 
     if res.std_out.starts_with("fatal:") {
@@ -62,7 +99,7 @@ async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::R
         }
     }
 
-    let res: Vec<(String, _)> = res
+    let res: Option<Vec<(String, DateTime<Utc>)>> = res
         .std_out
         .split("\n")
         .filter_map(|x| {
@@ -85,5 +122,11 @@ async fn get_related_commits(config: &Config, time: &Date<Utc>) -> color_eyre::R
         })
         .collect();
 
-    return res;
+    let cutoff_time = time - transcription_config.time_window;
+    let res = res.ok_or_eyre("Expected the git unix timestamps to be parsable")?;
+    let res = res
+        .into_iter()
+        .filter(|(_, b)| b >= cutoff_time)
+        .collect::<Vec<_>>();
+    Ok(res)
 }

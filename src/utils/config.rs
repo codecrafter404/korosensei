@@ -1,5 +1,6 @@
 use std::{path::PathBuf, str::FromStr};
 
+use chrono::Duration;
 use color_eyre::eyre::Context;
 use reqwest::{header::HeaderValue, Url};
 
@@ -45,6 +46,7 @@ pub struct TranscriptionConfig {
     pub git_source_branch: String,
     pub git_target_branch: String,
     pub git_source_path: PathBuf,
+    pub time_window: Duration, // past n minutes
 }
 impl TranscriptionConfig {
     pub fn from_environment() -> color_eyre::Result<TranscriptionConfig> {
@@ -61,6 +63,12 @@ impl TranscriptionConfig {
                 &dotenv::var("TRANSCRIPTION_AUDIO_SOURCE_DIR")
                     .wrap_err("Expected TRANSCRIPTION_AUDIO_SOURCE_DIR to be set")?,
             )?,
+            time_window: chrono::Duration::minutes(
+                dotenv::var("TRANSCRIPTION_TIME_WINDOW")
+                    .unwrap_or("100".to_owned())
+                    .parse::<i64>()
+                    .wrap_err("Failed to parse TRANSCRIPTION_TIME_WINDOW")?,
+            ),
         })
     }
 }
