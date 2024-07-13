@@ -4,6 +4,7 @@ use color_eyre::eyre::OptionExt as _;
 
 use crate::utils::{config::Config, git};
 
+/// Discovers all .link files which have to be transcribed
 pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> {
     let transcription_conf = conf
         .transcription

@@ -8,6 +8,7 @@ use crate::utils::config::Config;
 
 mod file_discovery;
 mod file_meta;
+mod link;
 mod markdown;
 
 pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {

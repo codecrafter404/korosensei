@@ -10,10 +10,14 @@ use crate::utils::git::{self};
 use itertools::Itertools;
 
 pub(crate) struct CorrelatingFile {
+    /// Path to .md file
     path: PathBuf,
+    /// Headlines index, starting by 0
     headlines: Vec<u64>,
 }
 
+/// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
+/// Also extracts the headlines, containing the line changes
 pub(crate) async fn discorver_correlating_files(
     time: DateTime<Utc>,
     config: &Config,
@@ -30,11 +34,21 @@ pub(crate) async fn discorver_correlating_files(
         let files = diff_commit(&commit, config)?;
         changed_files.extend_from_slice(&files);
     }
+    let transcription_base_path = transcription_config
+        .transcription_script_search_path
+        .strip_prefix("/")
+        .unwrap_or(&transcription_config.transcription_script_search_path);
     let changed_files = changed_files
         .into_iter()
         .chunk_by(|x| x.0.clone())
         .into_iter()
         .map(|(a, b)| (a, b.into_iter().map(|x| x.1).collect_vec()))
+        .filter(|x| x.0.ends_with(".md")) // only md files
+        .filter(|x| {
+            // only files we care about
+            let path = x.0.strip_prefix("/").unwrap_or(&x.0);
+            return path.starts_with(transcription_base_path);
+        })
         .collect_vec();
 
     let mut res = vec![];

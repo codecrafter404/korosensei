@@ -2,6 +2,7 @@ use std::{path::Path, process::ExitStatus};
 
 use color_eyre::eyre::{eyre, OptionExt as _};
 use graph_rs_sdk::{http::HttpResponseExt as _, GraphClient, ODataQuery as _};
+use itertools::Itertools;
 use serde::Deserialize;
 
 use crate::utils::{
@@ -15,6 +16,7 @@ struct OneDriveChildren {
     name: String,
     // file: Option<OneDriveFile>,
     folder: Option<OneDriveFolder>,
+    last_modified_date_time: String,
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,7 +94,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         .drive()
         .item_by_path(format!(":{}:", onedrive_source_path))
         .list_children()
-        .select(&["name", "folder", "file"])
+        .select(&["name", "folder", "file", "lastModifiedDateTime"])
         .paging()
         .json::<OneDriveChildrenVec>()
         .await?;
@@ -135,19 +137,23 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
                 })
                 .is_none()
             {
-                files_to_sync.push(name);
+                files_to_sync.push((name, res.last_modified_date_time));
             }
         }
     }
 
     let mut synced_files = 0;
     // syncing files
-    for file in &files_to_sync {
+    for (file, date) in &files_to_sync {
         let git_target_file = git_target_path.join(&file);
         let onedrive_file = file.strip_suffix(".link").expect("Infallible").to_owned();
         let onedrive_path = format!("{}/{}", onedrive_source_path, onedrive_file);
+        let date = chrono::DateTime::parse_from_rfc3339(&date)?;
 
-        match std::fs::write(&git_target_file, format!("onedrive:{}", onedrive_path)) {
+        match std::fs::write(
+            &git_target_file,
+            format!("onedrive:({}):{}", date.timestamp(), onedrive_path),
+        ) {
             Ok(_) => {
                 log::info!(
                     "Wrote link onedrive:{} -> {:?}",
@@ -178,7 +184,14 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
             &[
                 "commit",
                 "-m",
-                &format!("add: {}", files_to_sync.join(",")),
+                &format!(
+                    "add: {}",
+                    files_to_sync
+                        .iter()
+                        .map(|x| x.0.clone())
+                        .collect_vec()
+                        .join(",")
+                ),
                 "--author",
                 GIT_AUTHOR,
             ],

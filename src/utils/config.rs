@@ -35,7 +35,8 @@ impl Config {
             } else {
                 None
             },
-            git_exec: PathBuf::from_str(&dotenv::var("GITPATH")?).unwrap_or(PathBuf::new()),
+            git_exec: PathBuf::from_str(&dotenv::var("GITPATH").unwrap_or("".to_owned()))
+                .unwrap_or(PathBuf::new()),
         })
     }
 }
