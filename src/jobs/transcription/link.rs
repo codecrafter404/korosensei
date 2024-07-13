@@ -8,6 +8,8 @@ use itertools::Itertools;
 use reqwest::Url;
 use serde_json::from_str;
 
+use crate::utils::config::Config;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// WARNING: this link struct is only applicable to links in the working directory
 pub struct Link {
@@ -16,14 +18,16 @@ pub struct Link {
 }
 impl Link {
     /// WARNING: only accepts ABSOLUTE paths
-    pub fn from_path(path: &PathBuf) -> color_eyre::Result<Link> {
-        debug_assert!(path.is_absolute(), "Cant read from relative path");
+    /// Expects to be in the right git context
+    pub fn from_path(path: &PathBuf, config: &Config) -> color_eyre::Result<Link> {
         let content = std::fs::read_to_string(path)?;
         let mut link = Link::parse_link_file(&content)?;
 
         match link.link_target {
             LinkType::OneNoteLink(_) => {}
-            _ => {}
+            _ => {
+                link.last_modified = super::file_meta::extract_file_change_date(&path, config)?;
+            }
         }
 
         link.validate_link()?;
@@ -31,7 +35,10 @@ impl Link {
         return Ok(link);
     }
     fn validate_link(&self) -> color_eyre::Result<()> {
-        unimplemented!()
+        if self.last_modified == crate::utils::time::get_uninitalized_timestamp() {
+            return Err(eyre!("Time not properly parsed; got 01.01.0001"));
+        }
+        Ok(())
     }
     fn parse_link_file(content: &str) -> color_eyre::Result<Link> {
         let lines = content.split("\n").collect_vec();
@@ -126,7 +133,7 @@ fn test_link_parse() {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkType {
-    /// Local link to path on the filesystem
+    /// Local link relative to the git repo
     FileSytemLink(PathBuf),
     /// Link to a file in the web
     WebLink(Url),

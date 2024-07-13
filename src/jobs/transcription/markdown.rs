@@ -27,6 +27,8 @@ pub(crate) async fn discorver_correlating_files(
         .clone()
         .ok_or_eyre("Expected transcription config to be initalized")?;
 
+    let _ = git::check_out_create_branch(&transcription_config.git_target_branch, config)?;
+
     // gets all commits that happend in the timewindow around time
     let commits = get_related_commits(&config, time.clone())?;
     let mut changed_files = vec![];
@@ -164,8 +166,6 @@ fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Resu
         .transcription
         .clone()
         .ok_or_eyre("Expected transcription config to be loaded")?;
-
-    let _ = git::check_out_create_branch(&transcription_config.git_target_branch, config)?;
 
     let res = git::git_command_wrapper(
         &["log", "--pretty='format:%H %ct'"],

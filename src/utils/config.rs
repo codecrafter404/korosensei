@@ -49,6 +49,7 @@ pub struct TranscriptionConfig {
     pub git_source_path: PathBuf,
     pub time_window: Duration, // past n minutes
     pub include_parent: bool,
+    pub deepgram_key: String,
 }
 impl TranscriptionConfig {
     pub fn from_environment() -> color_eyre::Result<TranscriptionConfig> {
@@ -74,6 +75,8 @@ impl TranscriptionConfig {
             include_parent: vec!["y".to_owned(), "yes".to_owned(), "1".to_owned()].contains(
                 &dotenv::var("TRANSCRIPTION_AUDIO_SOURCE_DIR").unwrap_or("no".to_owned()),
             ),
+            deepgram_key: dotenv::var("TRANSCRIPTION_DEEPGRAM_KEY")
+                .wrap_err("Expected TRANSCRIPTION_DEEPGRAM_KEY to be set")?,
         })
     }
 }
