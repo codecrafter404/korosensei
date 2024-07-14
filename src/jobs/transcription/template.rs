@@ -21,7 +21,7 @@ pub(crate) fn get_transcription_file(
 ## Transcript
 {}
 ",
-        link.last_modified.format("%d/%m/%Y %H:%M"),
+        link.last_modified.format("%d.%m.%Y %H:%M"),
         format_tags(&transcription),
         format_link(&link, None)?,
         transcription.summary,

@@ -16,21 +16,85 @@ pub(crate) struct CorrelatingFile {
     headlines: Vec<u64>,
 }
 impl CorrelatingFile {
-    pub(crate) fn link_to_transcript(&self, transcript_path: PathBuf, content: &str, transcript_time: &DateTime<Utc>) -> color_eyre::Result<String>{
+    pub(crate) fn link_to_transcript(
+        &self,
+        transcript_path: PathBuf,
+        content: &str,
+        transcript_time: &DateTime<Utc>,
+    ) -> color_eyre::Result<String> {
+        let transcript_link = format!(
+            "[{}]({})",
+            transcript_time.format("%d.%m.%Y %H:%M"),
+            format!(
+                "/{}",
+                transcript_path
+                    .strip_prefix("/")
+                    .unwrap_or(&transcript_path)
+                    .to_str()
+                    .ok_or_eyre(format!(
+                        "Expected transcript path to be parsable string; got {:?}",
+                        transcript_path
+                    ))?
+            )
+        );
+
+        let mut result_buffer = Vec::new();
+        let lines = content.split("\n").collect_vec();
+        for (idx, line) in lines.iter().enumerate() {
+            let line = line.to_owned();
+
+            if !self.headlines.contains(&(idx as u64)) {
+                result_buffer.push(line);
+                continue;
+            }
+
+            // we are now on the headline
+
+            let (_, pre) = lazy_regex::regex_captures!("^([\\s>]*)#{1,}.*$", &line).ok_or_eyre(
+                format!("Expected to have headline on {}, got {}", idx, line),
+            )?;
+
+            let mut insert_at = idx;
+            let mut in_block = false;
+            for x in lines.iter().skip(idx + 1) {
+                if !x.starts_with(pre) {
+                    break; // search compleated
+                }
+                let x = x.strip_prefix(pre).expect("Infallible");
+
+                if !in_block
+                    && ((lazy_regex::regex_is_match!("^\\s*$", x)) // empty (at the start)
+                    || lazy_regex::regex_is_match!("<[^>]*>", x))
+                //html tag (eg. comment)
+                {
+                    insert_at += 1;
+                    continue;
+                }
+                if lazy_regex::regex_is_match!("^>\\s*(_Link|\\[[^\\]]*\\]\\([^)]*\\)){1,}\\s*$", x)
+                {
+                    // already a block
+                    in_block = true;
+                    insert_at += 1;
+                    continue;
+                }
+
+                break;
+            }
+        }
         unimplemented!()
     }
 }
 
 #[test]
-fn test_corelating_file_linkage {
+fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
-        headlines: vec![0, 3, 6, 8]
-
+        headlines: vec![0, 3, 6, 8],
     };
 
     let input_content = "\
 # Hello world
+<!-- test comment -->
 > Normal callout
 content
 ## Hello world
@@ -44,6 +108,7 @@ content
 > > [Existing_link](https://asdf.com)";
     let expected = "\
 # Hello world
+<!-- test comment -->
 > _Links
 > 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
@@ -68,8 +133,73 @@ content
 > > 
 > > [Existing_link](https://asdf.com)
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
-    assert_eq!(file.link_to_transcript(PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(), input_content, &DateTime::from_timestamp(1720951200, 0).unwrap()).unwrap(), expected);
+    assert_eq!(
+        file.link_to_transcript(
+            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720951200, 0).unwrap()
+        )
+        .unwrap(),
+        expected
+    );
+}
+#[test]
+fn test_corelating_file_linkage_full() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0, 3, 6, 8],
+    };
 
+    let input_content = "\
+# Hello world
+<!-- test comment -->
+> Normal callout
+content
+## Hello world
+        content
+> content?
+> # This is also a heading
+> content
+> ## Subheading
+> > _Link
+> > 
+> > [Existing_link](https://asdf.com)";
+    let expected = "\
+# Hello world
+<!-- test comment -->
+> _Links
+> 
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> Normal callout
+content
+## Hello world
+> _Links
+> 
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+        content
+> content?
+> # This is also a heading
+> > _Links
+> > 
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+> 
+> content
+> ## Subheading
+> > _Links
+> > 
+> > [Existing_link](https://asdf.com)
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
+    assert_eq!(
+        file.link_to_transcript(
+            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720951200, 0).unwrap()
+        )
+        .unwrap(),
+        expected
+    );
 }
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
