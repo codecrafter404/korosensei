@@ -40,48 +40,70 @@ impl CorrelatingFile {
 
         let mut result_buffer = Vec::new();
         let lines = content.split("\n").collect_vec();
+
+        let mut in_block = -1; // -1 = no; 0 = in block; 1 = after first link
+        let mut pre = None;
+
         for (idx, line) in lines.iter().enumerate() {
-            let line = line.to_owned();
+            println!("in_block: {}; pre: {:?}; line: {}", in_block, pre, line);
 
-            if !self.headlines.contains(&(idx as u64)) {
-                result_buffer.push(line);
+            let line = line.to_string();
+            if !self.headlines.contains(&(idx as u64)) && pre.clone().is_none() {
+                result_buffer.push(line.clone());
                 continue;
+            } else {
+                // we are now on the headline
+                let (_, pre_pre) =
+                    lazy_regex::regex_captures!("^([\\s>]*)#{1,}.*$", &line).ok_or_eyre(
+                        format!("Expected to have headline on {}, got {}", idx, line),
+                    )?;
+                pre = Some(pre_pre.to_string());
             }
 
-            // we are now on the headline
+            let prefix = pre.clone().expect("Infallible");
 
-            let (_, pre) = lazy_regex::regex_captures!("^([\\s>]*)#{1,}.*$", &line).ok_or_eyre(
-                format!("Expected to have headline on {}, got {}", idx, line),
-            )?;
+            if line.starts_with(&prefix) {
+                let x = line.strip_prefix(&prefix).expect("Infallible");
 
-            let mut insert_at = idx;
-            let mut in_block = false;
-            for x in lines.iter().skip(idx + 1) {
-                if !x.starts_with(pre) {
-                    break; // search compleated
-                }
-                let x = x.strip_prefix(pre).expect("Infallible");
-
-                if !in_block
-                    && ((lazy_regex::regex_is_match!("^\\s*$", x)) // empty (at the start)
-                    || lazy_regex::regex_is_match!("<[^>]*>", x))
-                //html tag (eg. comment)
-                {
-                    insert_at += 1;
+                // empty line before
+                // or html block
+                if in_block == -1 && lazy_regex::regex_is_match!(r"^[ \t]*(<[^>]*>)*[ \t]*$", x) {
+                    println!("-> Empty line before or html block");
+                    result_buffer.push(line.clone());
                     continue;
                 }
-                if lazy_regex::regex_is_match!("^>\\s*(_Link|\\[[^\\]]*\\]\\([^)]*\\)){1,}\\s*$", x)
-                {
-                    // already a block
-                    in_block = true;
-                    insert_at += 1;
+                // in block, but no links yet
+                if (in_block < 1) && lazy_regex::regex_is_match!("^>[ \\t]*(_Links)?[ \\t]*$", x) {
+                    println!("-> in block, but no links yet");
+                    in_block = 0;
+                    result_buffer.push(line.clone());
                     continue;
                 }
-
-                break;
+                // link
+                if lazy_regex::regex_is_match!("^>[ \\t]*\\[[^\\]]*\\]\\([^\\)]*\\)[ \\t]*$", x) {
+                    println!("-> link");
+                    in_block = 1;
+                    result_buffer.push(line.clone());
+                    continue;
+                }
             }
+
+            // inject content
+            let need_header = in_block == -1;
+
+            if need_header {
+                result_buffer.push(format!("{}", prefix));
+                result_buffer.push(format!("{}> _Links", prefix));
+                result_buffer.push(format!("{}> ", prefix));
+            }
+            result_buffer.push(format!("{}> {}", prefix, transcript_link));
+            result_buffer.push(format!("{}", prefix));
+
+            // reset
+            in_block = -1;
+            pre = None;
         }
-        unimplemented!()
+        Ok(result_buffer.join("\n"))
     }
 }
 
@@ -89,7 +111,7 @@ impl CorrelatingFile {
 fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
-        headlines: vec![0, 3, 6, 8],
+        headlines: vec![0, 4, 7, 9],
     };
 
     let input_content = "\
@@ -103,7 +125,7 @@ content
 > # This is also a heading
 > content
 > ## Subheading
-> > _Link
+> > _Links
 > > 
 > > [Existing_link](https://asdf.com)";
     let expected = "\
@@ -133,73 +155,15 @@ content
 > > 
 > > [Existing_link](https://asdf.com)
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
-    assert_eq!(
-        file.link_to_transcript(
+    let actual_result = file
+        .link_to_transcript(
             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
             input_content,
-            &DateTime::from_timestamp(1720951200, 0).unwrap()
+            &DateTime::from_timestamp(1720951200, 0).unwrap(),
         )
-        .unwrap(),
-        expected
-    );
-}
-#[test]
-fn test_corelating_file_linkage_full() {
-    let file = CorrelatingFile {
-        path: PathBuf::new(),
-        headlines: vec![0, 3, 6, 8],
-    };
-
-    let input_content = "\
-# Hello world
-<!-- test comment -->
-> Normal callout
-content
-## Hello world
-        content
-> content?
-> # This is also a heading
-> content
-> ## Subheading
-> > _Link
-> > 
-> > [Existing_link](https://asdf.com)";
-    let expected = "\
-# Hello world
-<!-- test comment -->
-> _Links
-> 
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-> Normal callout
-content
-## Hello world
-> _Links
-> 
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-        content
-> content?
-> # This is also a heading
-> > _Links
-> > 
-> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-> 
-> content
-> ## Subheading
-> > _Links
-> > 
-> > [Existing_link](https://asdf.com)
-> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
-    assert_eq!(
-        file.link_to_transcript(
-            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
-            input_content,
-            &DateTime::from_timestamp(1720951200, 0).unwrap()
-        )
-        .unwrap(),
-        expected
-    );
+        .unwrap();
+    println!("{:#?}", actual_result);
+    assert_eq!(actual_result, expected);
 }
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
