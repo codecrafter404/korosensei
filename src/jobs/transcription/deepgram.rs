@@ -4,6 +4,7 @@ use color_eyre::eyre::OptionExt;
 use deepgram::transcription::prerecorded::{
     audio_source::AudioSource,
     options::{self, OptionsBuilder},
+    response::Paragraph,
 };
 use graph_rs_sdk::{GraphClient, ODataQuery};
 use serde::Deserialize;
@@ -12,13 +13,18 @@ use crate::utils::config::{Config, TranscriptionConfig};
 
 use super::link::Link;
 
+#[derive(Debug, Clone)]
+pub struct TranscriptionResult {
+    pub paragraphs: Vec<Paragraph>,
+    pub summary: String,
+}
+
 pub(crate) async fn transcribe_link(
     link: &Link,
     conf: &Config,
     deepgram: deepgram::Deepgram,
     graph: &GraphClient,
 ) -> color_eyre::Result<()> {
-    let transcription_config = conf.transcription.clone().unwrap();
     let source = get_source(link, conf, graph).await?;
     let options = OptionsBuilder::new()
         .model(options::Model::Nova2Meeting)
@@ -28,9 +34,42 @@ pub(crate) async fn transcribe_link(
         .topics(true)
         .smart_format(true)
         .punctuate(true)
-        .paragraphs(true);
+        .paragraphs(true)
+        .build();
 
     //TODO: finish & check if the crate has been updated yet
+
+    let response = deepgram
+        .transcription()
+        .prerecorded(source, &options)
+        .await?;
+    let res = response
+        .clone()
+        .results
+        .ok_or_eyre(format!("Expected results to be Some, got {:?}", response))?;
+    let summary = res
+        .clone()
+        .summary
+        .ok_or_eyre(format!("Expected summary to be enabled; got {:?}", res))?
+        .short;
+
+    let paragraphs = res
+        .clone()
+        .channels
+        .first()
+        .ok_or_eyre(format!(
+            "Expected audio file to have at least one channel; got {:?}",
+            res
+        ))?
+        .alternatives
+        .clone()
+        .into_iter()
+        .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+        .ok_or_eyre(format!("Expected to get min.1 alternative; got {:?}", res))?
+        .paragraphs
+        .clone()
+        .ok_or_eyre(format!("Expected to get paragraphs, got {:?}", res))?
+        .paragraphs;
 
     unimplemented!();
 }

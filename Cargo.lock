@@ -455,7 +455,7 @@ checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 [[package]]
 name = "deepgram"
 version = "0.6.0"
-source = "git+https://github.com/deepgram-devs/deepgram-rust-sdk/?rev=857f0eb5fca7698e6cfa31680ef8129f3416350e#857f0eb5fca7698e6cfa31680ef8129f3416350e"
+source = "git+https://github.com/codecrafter404/deepgram-rust-sdk/?rev=d4134d847e74d9f142862570bb5629de41ad237e#d4134d847e74d9f142862570bb5629de41ad237e"
 dependencies = [
  "bytes",
  "futures",

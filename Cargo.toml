@@ -22,4 +22,4 @@ chrono = "0.4.38"
 chrono-tz = "0.9.0"
 patch = "0.7.0"
 itertools = "0.13.0"
-deepgram = {git = "https://github.com/deepgram-devs/deepgram-rust-sdk/", rev = "857f0eb5fca7698e6cfa31680ef8129f3416350e"}
+deepgram = {git = "https://github.com/codecrafter404/deepgram-rust-sdk/", rev = "d4134d847e74d9f142862570bb5629de41ad237e"}
