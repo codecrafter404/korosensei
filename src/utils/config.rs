@@ -4,7 +4,7 @@ use chrono::Duration;
 use color_eyre::eyre::Context;
 use reqwest::{header::HeaderValue, Url};
 
-use super::credentials::OneNoteCredentialsResponse;
+use super::credentials::OneDriveCredentialsResponse;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -103,7 +103,7 @@ impl CredentialConfig {
 
 #[derive(Debug, Clone)]
 pub struct AudioSyncConfig {
-    // OneNote
+    // OneDrive
     pub onedrive_source_folder: String,
 
     // Git

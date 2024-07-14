@@ -15,6 +15,62 @@ pub(crate) struct CorrelatingFile {
     /// Headlines index, starting by 0
     headlines: Vec<u64>,
 }
+impl CorrelatingFile {
+    pub(crate) fn link_to_transcript(&self, transcript_path: PathBuf, content: &str, transcript_time: &DateTime<Utc>) -> color_eyre::Result<String>{
+        unimplemented!()
+    }
+}
+
+#[test]
+fn test_corelating_file_linkage {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0, 3, 6, 8]
+
+    };
+
+    let input_content = "\
+# Hello world
+> Normal callout
+content
+## Hello world
+        content
+> content?
+> # This is also a heading
+> content
+> ## Subheading
+> > _Link
+> > 
+> > [Existing_link](https://asdf.com)";
+    let expected = "\
+# Hello world
+> _Links
+> 
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> Normal callout
+content
+## Hello world
+> _Links
+> 
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+        content
+> content?
+> # This is also a heading
+> > _Links
+> > 
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+> 
+> content
+> ## Subheading
+> > _Links
+> > 
+> > [Existing_link](https://asdf.com)
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
+    assert_eq!(file.link_to_transcript(PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(), input_content, &DateTime::from_timestamp(1720951200, 0).unwrap()).unwrap(), expected);
+
+}
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
 /// Also extracts the headlines, containing the line changes

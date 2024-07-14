@@ -105,8 +105,8 @@ async fn get_source(
         crate::jobs::transcription::link::LinkType::WebLink(link) => {
             AudioSource::from_url(link.clone())
         }
-        crate::jobs::transcription::link::LinkType::OneNoteLink(link) => {
-            AudioSource::from_url(get_onenote_download_link(link.clone(), graph).await?)
+        crate::jobs::transcription::link::LinkType::OneDriveLink(link) => {
+            AudioSource::from_url(get_onedrive_download_link(link.clone(), graph).await?)
         }
     };
     Ok(res)
@@ -116,7 +116,7 @@ struct GraphResponse {
     #[serde(rename = "@microsoft.graph.downloadUrl")]
     download_url: String,
 }
-async fn get_onenote_download_link(
+async fn get_onedrive_download_link(
     path: PathBuf,
     graph: &GraphClient,
 ) -> color_eyre::Result<reqwest::Url> {

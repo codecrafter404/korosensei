@@ -1,34 +1,96 @@
-use std::{intrinsics::sqrtf64, path::PathBuf};
-
-use crate::utils::config::Config;
+use color_eyre::eyre::{eyre, OptionExt};
+use itertools::Itertools;
 
 use super::{deepgram::TranscriptionResult, link::Link};
 
-pub(crate) fn get_transcription_file(transcription: &TranscriptionResult, link: &Link) -> String {
-    format!(
+pub(crate) fn get_transcription_file(
+    transcription: &TranscriptionResult,
+    link: &Link,
+) -> color_eyre::Result<String> {
+    Ok(format!(
         "\
 # Transcript '{}'
 
 > _Links
->
+{}
 > [Source File]({})
 
+## Summary
+{}
 
+## Transcript
+{}
 ",
         link.last_modified.format("%d/%m/%Y %H:%M"),
-        format_link(&link)
-    )
+        format_tags(&transcription),
+        format_link(&link, None)?,
+        transcription.summary,
+        format_paragraphs(&transcription, &link)?
+    ))
 }
-fn format_link(link: &Link) -> String {
-    unimplemented!()
+fn format_tags(res: &TranscriptionResult) -> String {
+    res.topics
+        .clone()
+        .into_iter()
+        .map(|x| format!("> [{}](topic://{})", x.topic, x.topic))
+        .join("\n")
 }
-
-pub(crate) fn get_link_node(
-    transcript: &PathBuf,
-    link: &Link,
-    conf: &Config,
-) -> color_eyre::Result<()> {
-    unimplemented!()
+fn format_link(link: &Link, offset: Option<f64>) -> color_eyre::Result<String> {
+    let mut res = match &link.link_target {
+        crate::jobs::transcription::link::LinkType::FileSytemLink(x) => {
+            let mut link = x
+                .to_str()
+                .ok_or_eyre(eyre!("Expected Link path to be parsable; got {:?}", x))?
+                .to_owned();
+            if !link.starts_with("/") {
+                link = format!("/{}", link);
+            }
+            if let Some(x) = offset {
+                link = format!("{}?time={}", link, x)
+            }
+            link
+        }
+        crate::jobs::transcription::link::LinkType::WebLink(link) => link.to_string(),
+        crate::jobs::transcription::link::LinkType::OneDriveLink(onedrive) => {
+            let mut link = onedrive
+                .to_str()
+                .ok_or_eyre(eyre!(
+                    "Expected Link path to be parsable; got {:?}",
+                    onedrive
+                ))?
+                .to_owned();
+            if !link.starts_with("/") {
+                link = format!("/{}", link);
+            }
+            format!("onedrive:{}", link)
+        }
+    };
+    if let Some(x) = offset {
+        res = format!("transcript:({}):{}", x, res)
+    }
+    Ok(res)
+}
+fn format_paragraphs(res: &TranscriptionResult, link: &Link) -> color_eyre::Result<String> {
+    let color = generate_random_color();
+    let color = format!(
+        "#{:x}{:x}{:x}",
+        color.0.floor() as i8,
+        color.1.floor() as i8,
+        color.2.floor() as i8
+    );
+    let mut result = String::new();
+    for x in &res.paragraphs {
+        format!(
+            "<mark style=\"background-color:{}\">[**Person {:2>0}**]({})</mark>: {}",
+            color,
+            x.speaker
+                .ok_or_eyre(format!("Expected speaker to be set, got {:?}", x))? as i32,
+            format_link(link, Some(x.start))?,
+            x.sentences.iter().map(|x| x.clone().text).join(" ")
+        );
+        result = format!("{}\n", result);
+    }
+    Ok(result)
 }
 
 // from https://en.wikipedia.org/wiki/HSL_and_HSV#HSV_to_RGB

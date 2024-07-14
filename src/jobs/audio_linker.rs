@@ -70,7 +70,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
     let github_files = github_files?;
 
     // OneDrive
-    let token = crate::utils::credentials::get_onenote_credentials(&credential_config).await?;
+    let token = crate::utils::credentials::get_onedrive_credentials(&credential_config).await?;
     if !token.scope.contains("Files.Read") {
         return Err(eyre!("Access token didn't cover the scrope 'Files.Read'"));
     }
@@ -86,7 +86,7 @@ pub async fn link_audio(config: &Config) -> color_eyre::Result<()> {
         onedrive_source_path = format!("/{}", onedrive_source_path);
     }
     if onedrive_source_path == "/" {
-        return Err(eyre!("Due to technical limitations the onenote source_dir cant be located at the drives root"));
+        return Err(eyre!("Due to technical limitations the onedrive source_dir cant be located at the drives root"));
     }
 
     let children = graph_client

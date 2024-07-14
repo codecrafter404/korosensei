@@ -24,7 +24,7 @@ impl Link {
         let mut link = Link::parse_link_file(&content)?;
 
         match link.link_target {
-            LinkType::OneNoteLink(_) => {}
+            LinkType::OneDriveLink(_) => {}
             _ => {
                 link.last_modified = super::file_meta::extract_file_change_date(&path, config)?;
             }
@@ -47,18 +47,18 @@ impl Link {
         }
         let line = lines[0];
 
-        return Ok(if line.starts_with("onenote:") {
+        return Ok(if line.starts_with("onedrive:") {
             let (_, timestamp, path) =
-                lazy_regex::regex_captures!("onenote:\\((\\d{1,})\\):(.*)", line).ok_or_eyre(
+                lazy_regex::regex_captures!("onedrive:\\((\\d{1,})\\):(.*)", line).ok_or_eyre(
                     format!(
-                        "Expected onenote link in format onenote:(timestamp):/path; got {}",
+                        "Expected onedrive link in format onedrive:(timestamp):/path; got {}",
                         line
                     ),
                 )?;
 
             let timestamp = timestamp.parse::<i64>()?;
             let link = Link {
-                link_target: LinkType::OneNoteLink(
+                link_target: LinkType::OneDriveLink(
                     PathBuf::from_str(path).wrap_err(format!("Expected path, got {}", path))?,
                 ),
                 last_modified: DateTime::from_timestamp(timestamp, 0)
@@ -92,9 +92,9 @@ impl Link {
 fn test_link_parse() {
     let tests = vec![
         (
-            "onenote:(1436809466):/assets/audio/audio1.mp3",
+            "onedrive:(1436809466):/assets/audio/audio1.mp3",
             Link {
-                link_target: LinkType::OneNoteLink(
+                link_target: LinkType::OneDriveLink(
                     PathBuf::from_str("/assets/audio/audio1.mp3").unwrap(),
                 ),
                 last_modified: DateTime::from_timestamp(1436809466, 0).unwrap(),
@@ -137,6 +137,6 @@ pub enum LinkType {
     FileSytemLink(PathBuf),
     /// Link to a file in the web
     WebLink(Url),
-    /// Link to a file hosted on onenote;
-    OneNoteLink(PathBuf),
+    /// Link to a file hosted on onedrive;
+    OneDriveLink(PathBuf),
 }
