@@ -92,12 +92,16 @@ impl CorrelatingFile {
             let need_header = in_block == -1;
 
             if need_header {
+                result_buffer.push(line.clone());
                 result_buffer.push(format!("{}", prefix));
                 result_buffer.push(format!("{}> _Links", prefix));
                 result_buffer.push(format!("{}> ", prefix));
             }
             result_buffer.push(format!("{}> {}", prefix, transcript_link));
             result_buffer.push(format!("{}", prefix));
+            if !need_header {
+                result_buffer.push(line.clone());
+            }
 
             // reset
             in_block = -1;
