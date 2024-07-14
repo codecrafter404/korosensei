@@ -1307,6 +1307,7 @@ dependencies = [
  "lazy-regex",
  "log",
  "patch",
+ "rand",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
