@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use color_eyre::eyre::OptionExt;
+use color_eyre::eyre::{eyre, OptionExt};
 use deepgram::transcription::prerecorded::{
     audio_source::AudioSource,
     options::{self, OptionsBuilder},
-    response::Paragraph,
+    response::{Paragraph, TopicDetail},
 };
 use graph_rs_sdk::{GraphClient, ODataQuery};
+use itertools::Itertools;
 use serde::Deserialize;
 
 use crate::utils::config::{Config, TranscriptionConfig};
@@ -17,6 +18,7 @@ use super::link::Link;
 pub struct TranscriptionResult {
     pub paragraphs: Vec<Paragraph>,
     pub summary: String,
+    pub topics: Vec<TopicDetail>,
 }
 
 pub(crate) async fn transcribe_link(
@@ -24,7 +26,7 @@ pub(crate) async fn transcribe_link(
     conf: &Config,
     deepgram: deepgram::Deepgram,
     graph: &GraphClient,
-) -> color_eyre::Result<()> {
+) -> color_eyre::Result<TranscriptionResult> {
     let source = get_source(link, conf, graph).await?;
     let options = OptionsBuilder::new()
         .model(options::Model::Nova2Meeting)
@@ -70,8 +72,22 @@ pub(crate) async fn transcribe_link(
         .clone()
         .ok_or_eyre(format!("Expected to get paragraphs, got {:?}", res))?
         .paragraphs;
+    let topics = res
+        .clone()
+        .topics
+        .ok_or_eyre(eyre!("Expected to get topics; got {:?}", res))?
+        .segments
+        .clone()
+        .into_iter()
+        .flat_map(|x| x.topics)
+        .sorted_by(|a, b| b.confidence_score.total_cmp(&a.confidence_score))
+        .collect_vec();
 
-    unimplemented!();
+    Ok(TranscriptionResult {
+        paragraphs,
+        topics,
+        summary,
+    })
 }
 async fn get_source(
     link: &Link,
