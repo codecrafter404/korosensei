@@ -9,6 +9,9 @@ use crate::utils::config::Config;
 use crate::utils::git::{self};
 use itertools::Itertools;
 
+mod parse_markdown;
+mod test_markdown_parse;
+
 pub(crate) struct CorrelatingFile {
     /// Path to .md file
     path: PathBuf,
