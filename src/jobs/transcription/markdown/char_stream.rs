@@ -25,11 +25,11 @@ impl CharStream {
     {
         self.take(self.test_while(test_function))
     }
-    fn preview(&self, n: usize) -> Vec<char> {
-        let n = n.min(self.chars.len() - 1);
+    pub fn preview(&self, n: usize) -> Vec<char> {
+        let n = n.min(self.chars.len());
         let mut res = Vec::new();
         for i in 0..n {
-            res.push(self.chars[i].clone());
+            res.push(self.chars[self.chars.len() - 1 - i].clone());
         }
         res
     }
@@ -55,10 +55,10 @@ impl CharStream {
     {
         let mut current: usize = 0;
         for x in self.chars.iter() {
-            current += 1;
             if !test_function(*x) {
                 break;
             }
+            current += 1;
         }
         current
     }
@@ -84,11 +84,11 @@ fn test_char_stream() {
     assert_eq!(stream.take(1)[0], 'a');
     assert_eq!(stream.len(), 5);
     assert_eq!(stream.test(|x| x.is_numeric()), Some(false));
-    assert_eq!(stream.test_while(|x| x != 'd'), 3);
-    assert_eq!(stream.take_while(|x| x != 'd'), vec!['b', 'c', 'd']);
+    assert_eq!(stream.test_while(|x| x != 'd'), 2);
+    assert_eq!(stream.take_while(|x| x != 'd'), vec!['b', 'c']);
 
     stream.prepend(vec!['h', 'i']);
     assert_eq!(stream.take(2), vec!['h', 'i']);
 
-    assert_eq!(stream.collect(), vec!['e', 'f']);
+    assert_eq!(stream.collect(), vec!['d', 'e', 'f']);
 }

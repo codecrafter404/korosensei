@@ -1,4 +1,4 @@
-use color_eyre::eyre::OptionExt;
+use color_eyre::eyre::{eyre, OptionExt};
 use itertools::Itertools;
 
 use super::char_stream::CharStream;
@@ -9,9 +9,15 @@ trait ParsableMarkdownNode {
         Self: Sized; // -> (Self, left over parsing)
     fn construct(&self) -> String;
 }
+trait PartialParsableMarkdownNode {
+    fn parse(content: &mut CharStream, line: usize) -> color_eyre::Result<Self>
+    where
+        Self: Sized; // -> (Self, left over parsing)
+    fn construct(&self) -> String;
+}
 
 /// Consumes newline
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct HeadlineNode {
     line: usize,
     level: usize,
@@ -20,7 +26,7 @@ struct HeadlineNode {
     original: String,
 }
 impl ParsableMarkdownNode for HeadlineNode {
-    fn parse(content: &str, line: usize) -> color_eyre::Result<Self>
+    fn parse(content: &str, line: usize, original: &str) -> color_eyre::Result<Self>
     where
         Self: Sized,
     {
@@ -28,8 +34,8 @@ impl ParsableMarkdownNode for HeadlineNode {
             .ok_or_eyre(format!("Expected to match a headline, got '{}'", content))?;
         Ok(HeadlineNode {
             content: text.to_string(),
-            line: hash.len(),
-            level: 0,
+            line,
+            level: hash.len(),
             original: content.to_string(),
         })
     }
@@ -39,30 +45,45 @@ impl ParsableMarkdownNode for HeadlineNode {
     }
 }
 /// Consumes newline
-#[derive(Debug, Clone)]
-struct ParagraphNode {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParagraphNode {
     line: usize,
     /// can be "" or only whitespace etc. (also linebreaks)
     content: String,
 }
 
-#[derive(Debug, Clone)]
-struct BlockNode {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockNode {
     /// at this line is the first or last '>'
     line: usize,
     /// nested level
     level: usize,
 }
-#[derive(Debug, Clone)]
-struct LinkNode {
+impl BlockNode {
+    fn parse(content: &mut CharStream, line: usize, level: usize) -> color_eyre::Result<BlockNode> {
+        if content.take(1) != vec!['>'] {
+            return Err(eyre!("Expected to get Block starting with '>'"));
+        }
+        Ok(BlockNode {
+            line: level,
+            level: line,
+        })
+    }
+
+    fn construct(&self) -> String {
+        return ">".to_string();
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkNode {
     line: usize,
     /// can be "" or only whitespace etc. (also linebreaks)
     content: String,
     /// can be "" or only whitespace etc.
     href: String,
 }
-#[derive(Debug, Clone)]
-enum MarkdownNode {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarkdownNode {
     Headline(HeadlineNode),
     ParagraphNode(ParagraphNode),
     BlockStart(BlockNode),
@@ -70,7 +91,7 @@ enum MarkdownNode {
     LinkNode(LinkNode),
 }
 
-pub(crate) fn parse_markdown(content: String) -> color_eyre::Result<Vec<MarkdownNode>> {
+pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut pre: Vec<String> = Vec::new();
     let mut res = Vec::new();
     for (idx, original_line) in content.split("\n").enumerate() {
@@ -97,6 +118,10 @@ pub(crate) fn parse_markdown(content: String) -> color_eyre::Result<Vec<Markdown
                     }
                 }
             } else {
+                res.push(MarkdownNode::BlockEnd(BlockNode {
+                    line: idx - 1,
+                    level: pre.len(),
+                }));
                 pre.pop();
             }
         }
@@ -108,11 +133,16 @@ pub(crate) fn parse_markdown(content: String) -> color_eyre::Result<Vec<Markdown
         if white_space.iter().filter(|x| **x == ' ').count() < 4
             && !white_space.iter().any(|x| *x == '\t')
         {
-            if line_stream.test(|x| x == '#').is_some_and(|x| x) {
-                res.push(MarkdownNode::Headline(HeadlineNode::parse(&line, idx)?));
-            }
-
-            // Handle new pre (block)
+            println!(
+                "{:?} {:?} {:?} {:?} {:?} {:?}",
+                line_stream,
+                idx,
+                pre,
+                line,
+                original_line,
+                line_stream.preview(1)
+            );
+            res.extend_from_slice(&parse_line(&mut line_stream, &line, idx)?);
         } else {
             res.push(MarkdownNode::ParagraphNode(ParagraphNode {
                 line: idx,
@@ -122,7 +152,26 @@ pub(crate) fn parse_markdown(content: String) -> color_eyre::Result<Vec<Markdown
         }
     }
 
-    unimplemented!()
+    println!("res: {:#?}", res);
+    Ok(res)
+}
+fn parse_line(
+    line_stream: &mut CharStream,
+    full_line: &str,
+    index: usize,
+) -> color_eyre::Result<Vec<MarkdownNode>> {
+    let mut res = Vec::new();
+    if line_stream.test(|x| x == '#').is_some_and(|x| x) {
+        res.push(MarkdownNode::Headline(HeadlineNode::parse(
+            &full_line, index,
+        )?));
+    }
+    if line_stream.test(|x| x == '>').is_some_and(|x| x) {
+        res.push(MarkdownNode::Headline(HeadlineNode::parse(
+            &full_line, index,
+        )?));
+    }
+    Ok(res)
 }
 pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> String {
     unimplemented!()
