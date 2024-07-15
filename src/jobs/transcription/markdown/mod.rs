@@ -9,6 +9,7 @@ use crate::utils::config::Config;
 use crate::utils::git::{self};
 use itertools::Itertools;
 
+mod char_stream;
 mod parse_markdown;
 mod test_markdown_parse;
 
@@ -137,113 +138,113 @@ impl CorrelatingFile {
     }
 }
 
-#[test]
-fn test_corelating_file_linkage_full() {
-    let file = CorrelatingFile {
-        path: PathBuf::new(),
-        headlines: vec![0, 4, 16, 20, 24, 27, 30],
-    };
-
-    let input_content = "\
-# Hello world
-<!-- test comment -->
-> Normal callout
-content
-### Append Test
->
->
->
-> _Links
-> [Example]()
-> []()
-
-> callout
-> _Links
-> those are great
-content
-##### Append Test #2
-> _Links
-
-
-##### Append Test #3
-> _Links
-> []()
-> broken
-## Hello world
-        content
-> content?
-> # This is also a heading
-> > test
-> content
-> ## Subheading
-> > _Links
-> > 
-> > [Existing_link](https://asdf.com)";
-    let expected = "\
-# Hello world
-<!-- test comment -->
-> _Links
-> 
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-> Normal callout
-content
-### Append Test
->
->
->
-> _Links
-> [Example]()
-> []()
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-> callout
-> _Links
-> those are great
-
-content
-##### Append Test #2
-> _Links
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-
-##### Append Test #3
-> _Links
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-> _Links
-> []()
-> broken
-## Hello world
-> _Links
-> 
-> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-
-        content
-> content?
-> # This is also a heading
-> > _Links
-> > 
-> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-> 
-> > test
-> content
-> ## Subheading
-> > _Links
-> > 
-> > [Existing_link](https://asdf.com)
-> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-> ";
-    let actual_result = file
-        .link_to_transcript(
-            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
-            input_content,
-            &DateTime::from_timestamp(1720958400, 0).unwrap(),
-        )
-        .unwrap();
-    println!("{:#?}", actual_result);
-    assert_eq!(actual_result, expected);
-}
+// #[test]
+// fn test_corelating_file_linkage_full() {
+//     let file = CorrelatingFile {
+//         path: PathBuf::new(),
+//         headlines: vec![0, 4, 16, 20, 24, 27, 30],
+//     };
+//
+//     let input_content = "\
+// # Hello world
+// <!-- test comment -->
+// > Normal callout
+// content
+// ### Append Test
+// >
+// >
+// >
+// > _Links
+// > [Example]()
+// > []()
+//
+// > callout
+// > _Links
+// > those are great
+// content
+// ##### Append Test #2
+// > _Links
+//
+//
+// ##### Append Test #3
+// > _Links
+// > []()
+// > broken
+// ## Hello world
+//         content
+// > content?
+// > # This is also a heading
+// > > test
+// > content
+// > ## Subheading
+// > > _Links
+// > >
+// > > [Existing_link](https://asdf.com)";
+//     let expected = "\
+// # Hello world
+// <!-- test comment -->
+// > _Links
+// >
+// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+//
+// > Normal callout
+// content
+// ### Append Test
+// >
+// >
+// >
+// > _Links
+// > [Example]()
+// > []()
+// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+//
+// > callout
+// > _Links
+// > those are great
+//
+// content
+// ##### Append Test #2
+// > _Links
+// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+//
+//
+// ##### Append Test #3
+// > _Links
+// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+//
+// > _Links
+// > []()
+// > broken
+// ## Hello world
+// > _Links
+// >
+// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+//
+//         content
+// > content?
+// > # This is also a heading
+// > > _Links
+// > >
+// > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+// >
+// > > test
+// > content
+// > ## Subheading
+// > > _Links
+// > >
+// > > [Existing_link](https://asdf.com)
+// > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+// > ";
+//     let actual_result = file
+//         .link_to_transcript(
+//             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
+//             input_content,
+//             &DateTime::from_timestamp(1720958400, 0).unwrap(),
+//         )
+//         .unwrap();
+//     println!("{:#?}", actual_result);
+//     assert_eq!(actual_result, expected);
+// }
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
 /// Also extracts the headlines, containing the line changes

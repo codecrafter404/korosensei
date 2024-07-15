@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 trait ParsableMarkdownNode {
     fn parse<'a>(content: &'a str) -> (Self, &'a str)
     where
@@ -46,7 +48,17 @@ enum MarkdownNode {
 }
 
 pub(crate) fn parse_markdown(content: String) -> color_eyre::Result<Vec<MarkdownNode>> {
-    let mut content = content;
+    let mut pre: Vec<String> = Vec::new();
+    for (idx, line) in content.split("\n").enumerate() {
+        let mut line = line.to_string();
+
+        while pre.iter().next().is_none() {}
+
+        let mut line = super::char_stream::CharStream::new(&line.chars().collect_vec());
+        if line.test(|x| x == '#').is_some_and(|x| x) {
+            todo!()
+        }
+    }
 
     unimplemented!()
 }
