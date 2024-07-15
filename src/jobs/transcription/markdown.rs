@@ -41,28 +41,33 @@ impl CorrelatingFile {
         let mut result_buffer = Vec::new();
         let lines = content.split("\n").collect_vec();
 
-        let mut in_block = -1; // -1 = no; 0 = in block; 1 = after first link
+        let mut in_block = -1; // -1 = no; 0 = in block; 1 = after link on last line; 2 = after some link, where there is a next line
         let mut pre = None;
 
         for (idx, line) in lines.iter().enumerate() {
-            println!("in_block: {}; pre: {:?}; line: {}", in_block, pre, line);
+            println!(
+                "in_block: {}; pre: {:?}; line: {} ({})",
+                in_block, pre, line, idx
+            );
 
             let line = line.to_string();
-            if !self.headlines.contains(&(idx as u64)) && pre.clone().is_none() {
-                result_buffer.push(line.clone());
-                continue;
-            } else {
-                // we are now on the headline
+            if self.headlines.contains(&(idx as u64)) {
                 let (_, pre_pre) =
                     lazy_regex::regex_captures!("^([\\s>]*)#{1,}.*$", &line).ok_or_eyre(
                         format!("Expected to have headline on {}, got {}", idx, line),
                     )?;
                 pre = Some(pre_pre.to_string());
+                result_buffer.push(line.clone());
+                continue;
             }
-
+            if pre.is_none() {
+                result_buffer.push(line.clone());
+                continue;
+            }
             let prefix = pre.clone().expect("Infallible");
 
             if line.starts_with(&prefix) {
+                println!("-> starts_with prefix");
                 let x = line.strip_prefix(&prefix).expect("Infallible");
 
                 // empty line before
@@ -82,27 +87,45 @@ impl CorrelatingFile {
                 // link
                 if lazy_regex::regex_is_match!("^>[ \\t]*\\[[^\\]]*\\]\\([^\\)]*\\)[ \\t]*$", x) {
                     println!("-> link");
-                    in_block = 1;
-                    result_buffer.push(line.clone());
-                    continue;
+                    if (idx + 1) < lines.len() {
+                        result_buffer.push(line.clone());
+                        in_block = 2;
+                        continue; // Last line; immediately append & don't continue
+                    } else {
+                        in_block = 1;
+                    }
                 }
             }
 
             // inject content
             let need_header = in_block == -1;
 
-            if need_header {
+            if in_block > -1 && in_block != 2 {
                 result_buffer.push(line.clone());
-                result_buffer.push(format!("{}", prefix));
+            }
+
+            if need_header {
+                // result_buffer.push(format!("{}", prefix));
                 result_buffer.push(format!("{}> _Links", prefix));
                 result_buffer.push(format!("{}> ", prefix));
             }
             result_buffer.push(format!("{}> {}", prefix, transcript_link));
             result_buffer.push(format!("{}", prefix));
-            if !need_header {
+
+            if in_block == -1 {
                 result_buffer.push(line.clone());
             }
-
+            if in_block == 2 {
+                let mut line_test = String::new();
+                if let Some(pre) = pre {
+                    line_test = line.strip_prefix(&pre).unwrap_or(&line).to_string();
+                } else {
+                    line_test = line.clone();
+                };
+                if !line_test.trim().is_empty() {
+                    result_buffer.push(line.clone());
+                }
+            }
             // reset
             in_block = -1;
             pre = None;
@@ -115,7 +138,7 @@ impl CorrelatingFile {
 fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
-        headlines: vec![0, 4, 7, 9],
+        headlines: vec![0, 4, 16, 20, 24, 27, 30],
     };
 
     let input_content = "\
@@ -123,10 +146,31 @@ fn test_corelating_file_linkage_full() {
 <!-- test comment -->
 > Normal callout
 content
+### Append Test
+>
+>
+>
+> _Links
+> [Example]()
+> []()
+
+> callout
+> _Links
+> those are great
+content
+##### Append Test #2
+> _Links
+
+
+##### Append Test #3
+> _Links
+> []()
+> broken
 ## Hello world
         content
 > content?
 > # This is also a heading
+> > test
 > content
 > ## Subheading
 > > _Links
@@ -141,6 +185,32 @@ content
 
 > Normal callout
 content
+### Append Test
+>
+>
+>
+> _Links
+> [Example]()
+> []()
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> callout
+> _Links
+> those are great
+
+content
+##### Append Test #2
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+
+##### Append Test #3
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> _Links
+> []()
+> broken
 ## Hello world
 > _Links
 > 
@@ -153,17 +223,19 @@ content
 > > 
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 > 
+> > test
 > content
 > ## Subheading
 > > _Links
 > > 
 > > [Existing_link](https://asdf.com)
-> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+> ";
     let actual_result = file
         .link_to_transcript(
             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
             input_content,
-            &DateTime::from_timestamp(1720951200, 0).unwrap(),
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
         )
         .unwrap();
     println!("{:#?}", actual_result);
