@@ -3,19 +3,6 @@ use itertools::Itertools;
 
 use crate::utils::{char_stream::CharStream, string};
 
-trait ParsableMarkdownNode {
-    fn parse(content: &str, line: usize) -> color_eyre::Result<Self>
-    where
-        Self: Sized; // -> (Self, left over parsing)
-    fn construct(&self) -> String;
-}
-trait PartialParsableMarkdownNode {
-    fn parse(content: &mut CharStream, line: usize) -> color_eyre::Result<Self>
-    where
-        Self: Sized; // -> (Self, left over parsing)
-    fn construct(&self) -> String;
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadlineNode {
     pub line: usize,
@@ -63,6 +50,9 @@ impl ParagraphNode {
     pub fn new(line: usize, content: String) -> ParagraphNode {
         ParagraphNode { line, content }
     }
+    pub fn construct(&self) -> String {
+        self.content.clone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,8 +77,8 @@ impl BlockNode {
         BlockNode { line, level }
     }
 }
-/// WARNING: The LinkNode is not properly implemented and therefore cant handle errors at all
-/// using this with broken input may lead to undefined behavior, as the parser will try to make a link out of it
+
+/// NOTE: The content will not be reparsed!
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkNode {
     line: usize,
@@ -133,6 +123,9 @@ impl LinkNode {
             href,
         }
     }
+    pub fn construct(&self) -> String {
+        format!("[{}]({})", self.content, self.href)
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkdownNode {
@@ -141,6 +134,26 @@ pub enum MarkdownNode {
     BlockStart(BlockNode),
     BlockEnd(BlockNode),
     LinkNode(LinkNode),
+}
+impl MarkdownNode {
+    fn get_line(&self) -> usize {
+        match &self {
+            MarkdownNode::Headline(x) => x.line,
+            MarkdownNode::ParagraphNode(x) => x.line,
+            MarkdownNode::BlockStart(x) => x.line,
+            MarkdownNode::BlockEnd(x) => x.line,
+            MarkdownNode::LinkNode(x) => x.line,
+        }
+    }
+    fn construct(&self) -> String {
+        match &self {
+            MarkdownNode::Headline(x) => x.construct(),
+            MarkdownNode::ParagraphNode(x) => x.construct(),
+            MarkdownNode::BlockStart(x) => x.construct(),
+            MarkdownNode::BlockEnd(x) => String::new(),
+            MarkdownNode::LinkNode(x) => x.construct(),
+        }
+    }
 }
 
 pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNode>> {
@@ -171,7 +184,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
 
         let mut line_stream = CharStream::new(&line.chars().collect_vec());
 
-        let mut line_res = parse_line(&mut line_stream, &line, idx, &mut pre)?;
+        let mut line_res = parse_line(&mut line_stream, &original_line, idx, &mut pre)?;
         if line_res.is_empty() {
             // newline
             line_res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
@@ -198,6 +211,7 @@ fn parse_stream(
     line_stream: &mut CharStream,
     index: usize,
     pre: &mut Vec<String>,
+    original_line: &str,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut res = Vec::new();
     if line_stream.test(|x| x == '#').is_some_and(|x| x) {
@@ -207,11 +221,17 @@ fn parse_stream(
         )?));
     }
     if line_stream.test(|x| x == '>').is_some_and(|x| x) {
-        res.push(MarkdownNode::BlockStart(BlockNode::parse(
-            line_stream,
-            index,
-            pre.len() + 1,
-        )?));
+        if line_stream
+            .get_history()
+            .iter()
+            .all(|x| x.is_whitespace() || ['>'].contains(x))
+        {
+            res.push(MarkdownNode::BlockStart(BlockNode::parse(
+                line_stream,
+                index,
+                pre.len() + 1,
+            )?));
+        }
     }
     if line_stream.test(|x| x == '[').is_some_and(|x| x) {
         if let Some(x) = LinkNode::parse(line_stream, index)? {
@@ -229,11 +249,12 @@ fn parse_line(
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut res = Vec::new();
 
-    res.extend_from_slice(&parse_stream(line_stream, index, pre)?);
+    res.extend_from_slice(&parse_stream(line_stream, index, pre, original_line)?);
 
     let mut current = line_stream.take(1);
 
     loop {
+        //TODO: this is different when parsing headers, (they arent valid anymore after 3x'' outside of any blocks)
         if (current.len() > 2 && current.iter().rev().collect::<String>().starts_with("     ")) // last 5 chars are spaces
             || current.iter().last().is_some_and(|x| *x == '\t')
         // or is tab
@@ -246,7 +267,7 @@ fn parse_line(
             )));
             break;
         }
-        let test = parse_stream(line_stream, index, pre)?;
+        let test = parse_stream(line_stream, index, pre, original_line)?;
         if !test.is_empty() || line_stream.is_empty() {
             // Paragraph stuff
             let p = current.clone().into_iter().collect::<String>();
@@ -278,6 +299,45 @@ fn parse_line(
 
     Ok(res)
 }
-pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> String {
-    unimplemented!()
+pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> color_eyre::Result<String> {
+    let lines = nodes.into_iter().chunk_by(|x| x.get_line());
+    let lines = lines
+        .into_iter()
+        .map(|(a, b)| (a, b.collect_vec()))
+        .collect_vec();
+
+    let mut prev = -2;
+    if let Some(x) = lines.iter().find(|x| {
+        prev += 1;
+        (x.0 as i32 - 1) != prev
+    }) {
+        return Err(eyre!(format!("line {} is missing", x.0 as i32 - 1)));
+    }
+
+    let mut result = Vec::new();
+    let mut pre = Vec::new();
+    for (idx, line) in lines {
+        let mut pre_this = format!("{}", pre.join(" "));
+        let mut res = String::new();
+        for l in line {
+            res = format!("{}{}", res, l.construct());
+            match l {
+                MarkdownNode::BlockStart(_) => {
+                    pre.push(">");
+                }
+                MarkdownNode::BlockEnd(_) => {
+                    pre.pop();
+                }
+                _ => {}
+            }
+        }
+        println!("[{:3>0}] {:?} {:?}", idx, pre_this, res);
+        if !pre_this.is_empty() && !res.starts_with(" ") {
+            pre_this = format!("{} ", pre_this);
+        }
+        res = format!("{}{}", pre_this, res);
+
+        result.push(res);
+    }
+    Ok(result.join("\n"))
 }

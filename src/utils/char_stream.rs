@@ -2,22 +2,27 @@ use itertools::Itertools;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CharStream {
-    chars: Vec<char>,
+    available_chars: Vec<char>,
+    poped_chars: Vec<char>,
 }
 impl CharStream {
     pub fn prepend(&mut self, chars: Vec<char>) {
         let mut chars = chars;
         chars.reverse();
-        self.chars.extend_from_slice(&chars);
+        self.available_chars.extend_from_slice(&chars);
     }
     pub fn take(&mut self, n: usize) -> Vec<char> {
         let mut res = Vec::new();
         for _ in 0..n {
-            if let Some(x) = self.chars.pop() {
+            if let Some(x) = self.available_chars.pop() {
+                self.poped_chars.push(x);
                 res.push(x);
             }
         }
         res
+    }
+    pub fn get_history(&self) -> Vec<char> {
+        self.poped_chars.clone()
     }
     pub fn take_while<F>(&mut self, test_function: F) -> Vec<char>
     where
@@ -26,15 +31,15 @@ impl CharStream {
         self.take(self.test_while(test_function))
     }
     pub fn preview(&self, n: usize) -> Vec<char> {
-        let n = n.min(self.chars.len());
+        let n = n.min(self.available_chars.len());
         let mut res = Vec::new();
         for i in 0..n {
-            res.push(self.chars[self.chars.len() - 1 - i].clone());
+            res.push(self.available_chars[self.available_chars.len() - 1 - i].clone());
         }
         res
     }
     pub fn len(&self) -> usize {
-        return self.chars.len();
+        return self.available_chars.len();
     }
     pub fn test_n<F>(&self, n: usize, test_function: F) -> Vec<bool>
     where
@@ -54,7 +59,7 @@ impl CharStream {
         F: Fn(char) -> bool,
     {
         let mut current: usize = 0;
-        for x in self.chars.iter().rev() {
+        for x in self.available_chars.iter().rev() {
             if !test_function(*x) {
                 break;
             }
@@ -65,16 +70,19 @@ impl CharStream {
     pub fn new(chars: &Vec<char>) -> Self {
         let mut chars = chars.clone();
         chars.reverse();
-        CharStream { chars }
+        CharStream {
+            available_chars: chars,
+            poped_chars: vec![],
+        }
     }
     pub fn prev_collect(&self) -> Vec<char> {
-        self.preview(self.chars.len())
+        self.preview(self.available_chars.len())
     }
     pub fn collect(&mut self) -> Vec<char> {
-        self.take(self.chars.len())
+        self.take(self.available_chars.len())
     }
     pub fn is_empty(&self) -> bool {
-        self.chars.is_empty()
+        self.available_chars.is_empty()
     }
 }
 
@@ -84,7 +92,8 @@ fn test_char_stream() {
     assert_eq!(
         stream,
         CharStream {
-            chars: vec!['f', 'e', 'd', 'c', 'b', 'a']
+            available_chars: vec!['f', 'e', 'd', 'c', 'b', 'a'],
+            poped_chars: vec![]
         }
     );
     assert_eq!(stream.preview(1), vec!['a']);
@@ -103,5 +112,9 @@ fn test_char_stream() {
     assert_eq!(stream.take(2), vec!['h', 'i']);
 
     assert_eq!(stream.collect(), vec!['d', 'e', 'f']);
+    assert_eq!(
+        stream.get_history(),
+        vec!['a', 'a', 'b', 'c', 'h', 'i', 'd', 'e', 'f']
+    );
     assert!(stream.is_empty())
 }

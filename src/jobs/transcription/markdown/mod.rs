@@ -10,6 +10,7 @@ use crate::utils::git::{self};
 use itertools::Itertools;
 
 mod parse_markdown;
+mod test_data;
 mod test_markdown_parse;
 
 pub(crate) struct CorrelatingFile {
