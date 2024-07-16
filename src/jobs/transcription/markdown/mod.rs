@@ -9,7 +9,6 @@ use crate::utils::config::Config;
 use crate::utils::git::{self};
 use itertools::Itertools;
 
-mod char_stream;
 mod parse_markdown;
 mod test_markdown_parse;
 

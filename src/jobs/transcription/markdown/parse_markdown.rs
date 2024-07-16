@@ -1,9 +1,7 @@
 use color_eyre::eyre::{eyre, OptionExt};
 use itertools::Itertools;
 
-use crate::utils::string;
-
-use super::char_stream::CharStream;
+use crate::utils::{char_stream::CharStream, string};
 
 trait ParsableMarkdownNode {
     fn parse(content: &str, line: usize) -> color_eyre::Result<Self>
@@ -19,9 +17,9 @@ trait PartialParsableMarkdownNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct HeadlineNode {
+pub struct HeadlineNode {
     pub line: usize,
-    level: usize,
+    pub level: usize,
     /// can only whitespace etc. (also linebreaks)
     pub content: String,
     pub original: String,
@@ -35,16 +33,24 @@ impl HeadlineNode {
         let content = content.collect().into_iter().collect::<String>();
         let (_, hash, text) = lazy_regex::regex_captures!(r"^\s{0,3}(#{1,})\s{1,}(.*)$", &content)
             .ok_or_eyre(format!("Expected to match a headline, got '{}'", content))?;
-        Ok(HeadlineNode {
-            content: text.to_string(),
+        Ok(HeadlineNode::new(
             line,
-            level: hash.len(),
+            hash.len(),
+            text.to_string(),
             original,
-        })
+        ))
     }
 
     fn construct(&self) -> String {
         self.original.clone()
+    }
+    pub fn new(line: usize, level: usize, content: String, original: String) -> HeadlineNode {
+        HeadlineNode {
+            line,
+            level,
+            content,
+            original,
+        }
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,13 +77,18 @@ impl BlockNode {
         if content.take(1) != vec!['>'] {
             return Err(eyre!("Expected to get Block starting with '>'"));
         }
-        Ok(BlockNode { line, level })
+        Ok(BlockNode::new(line, level))
     }
 
     fn construct(&self) -> String {
         return ">".to_string();
     }
+    pub fn new(line: usize, level: usize) -> BlockNode {
+        BlockNode { line, level }
+    }
 }
+/// WARNING: The LinkNode is not properly implemented and therefore cant handle errors at all
+/// using this with broken input may lead to undefined behavior, as the parser will try to make a link out of it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkNode {
     line: usize,
@@ -108,11 +119,14 @@ impl LinkNode {
             log::info!("Link on line {} doesn't have ']' or '('", line);
             println!("Link on line {} doesn't have ']' or '('", line);
         }
-        Ok(LinkNode {
+        Ok(LinkNode::new(line, content, href))
+    }
+    pub fn new(line: usize, content: String, href: String) -> LinkNode {
+        LinkNode {
             line,
             content,
             href,
-        })
+        }
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,44 +160,29 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
                 .to_string();
                 break;
             } else {
-                res.push(MarkdownNode::BlockEnd(BlockNode {
-                    line: idx - 1,
-                    level: pre.len(),
-                }));
+                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx - 1, pre.len())));
                 pre.pop();
             }
         }
 
-        let mut line_stream = super::char_stream::CharStream::new(&line.chars().collect_vec());
+        let mut line_stream = CharStream::new(&line.chars().collect_vec());
 
         let mut line_res = parse_line(&mut line_stream, &line, idx, &mut pre, false)?;
         if line_res.is_empty() {
             // newline
-            line_res.push(MarkdownNode::ParagraphNode(ParagraphNode {
-                line: idx,
-                content: "\n".to_owned(),
-            }))
+            line_res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                idx,
+                "".to_owned(),
+            )));
         }
 
         res.extend_from_slice(&line_res);
 
         // Last line cleanup
         if idx + 1 == lines.len() {
-            // clean up last newline
-            if let Some(x) = res.iter().last() {
-                if let MarkdownNode::ParagraphNode(x) = x {
-                    if x.line == idx && x.content == "\n" {
-                        res.pop();
-                    }
-                }
-            }
-
             // close all blocks
             while let Some(_) = pre.iter().next() {
-                res.push(MarkdownNode::BlockEnd(BlockNode {
-                    line: idx - 1,
-                    level: pre.len(),
-                }));
+                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx - 1, pre.len())));
                 pre.pop();
             }
         }
@@ -236,16 +235,16 @@ fn parse_line(
 
     loop {
         println!("?> current: {:?}", current);
-        if (current.len() > 2 && current.iter().rev().collect::<String>().starts_with("   ")) // last 3 chars are spaces
+        if (current.len() > 2 && current.iter().rev().collect::<String>().starts_with("     ")) // last 5 chars are spaces
             || current.iter().last().is_some_and(|x| *x == '\t')
         // or is tab
         {
             // too much indentation, the leftover chars are now part of this paragraph
             current.extend_from_slice(&line_stream.collect());
-            res.push(MarkdownNode::ParagraphNode(ParagraphNode {
-                line: index,
-                content: current.into_iter().collect(),
-            }));
+            res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                index,
+                current.into_iter().collect(),
+            )));
             break;
         }
         let test = parse_stream(line_stream, index, pre)?;
@@ -254,10 +253,7 @@ fn parse_line(
             let p = current.clone().into_iter().collect::<String>();
             if !p.is_empty() {
                 println!("-> Got paragraph");
-                res.push(MarkdownNode::ParagraphNode(ParagraphNode {
-                    line: index,
-                    content: p,
-                }));
+                res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(index, p)));
             }
 
             // append

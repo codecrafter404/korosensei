@@ -1,4 +1,7 @@
 use itertools::Itertools as _;
+use tokio::stream;
+
+use crate::utils::char_stream::CharStream;
 
 pub fn strip_prefix_with_whitespace(string: &str, prefix: &str) -> String {
     let mut res = vec![];
@@ -40,11 +43,3 @@ fn test_strip_prefix_with_whitespace() {
         "                content".to_owned()
     );
 }
-
-/// Splits `content` into lines, respecting '\n' lines
-pub fn split_lines(content: &str) -> Vec<String> {
-    unimplemented!()
-}
-
-#[test]
-fn test_split_lines() {}
