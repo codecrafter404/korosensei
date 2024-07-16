@@ -67,6 +67,9 @@ impl CharStream {
         chars.reverse();
         CharStream { chars }
     }
+    pub fn prev_collect(&self) -> Vec<char> {
+        self.preview(self.chars.len())
+    }
     pub fn collect(&mut self) -> Vec<char> {
         self.take(self.chars.len())
     }
@@ -91,6 +94,7 @@ fn test_char_stream() {
 
     stream.prepend(vec!['a']);
     assert_eq!(stream.test_while(|x| x != 'd'), 3);
+    assert_eq!(stream.prev_collect(), vec!['a', 'b', 'c', 'd', 'e', 'f']);
 
     assert_eq!(stream.take_while(|x| x != 'd'), vec!['a', 'b', 'c']);
     assert_eq!(stream.test(|x| x == 'd'), Some(true));

@@ -1,6 +1,8 @@
 use color_eyre::eyre::{eyre, OptionExt};
 use itertools::Itertools;
 
+use crate::utils::string;
+
 use super::char_stream::CharStream;
 
 trait ParsableMarkdownNode {
@@ -16,20 +18,20 @@ trait PartialParsableMarkdownNode {
     fn construct(&self) -> String;
 }
 
-/// Consumes newline
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct HeadlineNode {
-    line: usize,
+    pub line: usize,
     level: usize,
-    /// can be "" or only whitespace etc. (also linebreaks)
-    content: String,
-    original: String,
+    /// can only whitespace etc. (also linebreaks)
+    pub content: String,
+    pub original: String,
 }
 impl HeadlineNode {
-    fn parse(content: &mut CharStream, line: usize, original: &str) -> color_eyre::Result<Self>
+    fn parse(content: &mut CharStream, line: usize) -> color_eyre::Result<Self>
     where
         Self: Sized,
     {
+        let original = content.prev_collect().into_iter().collect();
         let content = content.collect().into_iter().collect::<String>();
         let (_, hash, text) = lazy_regex::regex_captures!(r"^\s{0,3}(#{1,})\s{1,}(.*)$", &content)
             .ok_or_eyre(format!("Expected to match a headline, got '{}'", content))?;
@@ -37,7 +39,7 @@ impl HeadlineNode {
             content: text.to_string(),
             line,
             level: hash.len(),
-            original: original.to_string(),
+            original,
         })
     }
 
@@ -45,20 +47,24 @@ impl HeadlineNode {
         self.original.clone()
     }
 }
-/// Consumes newline
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParagraphNode {
-    line: usize,
-    /// can be "" or only whitespace etc. (also linebreaks)
-    content: String,
+    pub line: usize,
+    /// can be only whitespace etc. (also linebreaks)
+    pub content: String,
+}
+impl ParagraphNode {
+    pub fn new(line: usize, content: String) -> ParagraphNode {
+        ParagraphNode { line, content }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockNode {
     /// at this line is the first or last '>'
-    line: usize,
+    pub line: usize,
     /// nested level
-    level: usize,
+    pub level: usize,
 }
 impl BlockNode {
     fn parse(content: &mut CharStream, line: usize, level: usize) -> color_eyre::Result<BlockNode> {
@@ -133,7 +139,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
                 .collect::<String>()
                 .starts_with(&pre.join(""))
             {
-                line = strip_prefix_with_whitespace(
+                line = string::strip_prefix_with_whitespace(
                     &line,
                     &pre.clone().join("").chars().collect::<String>(),
                 )
@@ -150,23 +156,29 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
 
         let mut line_stream = super::char_stream::CharStream::new(&line.chars().collect_vec());
 
-        let white_space = line_stream.take_while(|x| x.is_whitespace());
-
-        if white_space.iter().filter(|x| **x == ' ').count() < 4
-            && !white_space.iter().any(|x| *x == '\t')
-        {
-            line_stream.prepend(white_space);
-            res.extend_from_slice(&parse_line(&mut line_stream, &line, idx, &mut pre, false)?);
-        } else {
-            res.push(MarkdownNode::ParagraphNode(ParagraphNode {
+        let mut line_res = parse_line(&mut line_stream, &line, idx, &mut pre, false)?;
+        if line_res.is_empty() {
+            // newline
+            line_res.push(MarkdownNode::ParagraphNode(ParagraphNode {
                 line: idx,
-                content: format!("{}\n", original_line),
-            }));
-            continue;
+                content: "\n".to_owned(),
+            }))
         }
+
+        res.extend_from_slice(&line_res);
 
         // Last line cleanup
         if idx + 1 == lines.len() {
+            // clean up last newline
+            if let Some(x) = res.iter().last() {
+                if let MarkdownNode::ParagraphNode(x) = x {
+                    if x.line == idx && x.content == "\n" {
+                        res.pop();
+                    }
+                }
+            }
+
+            // close all blocks
             while let Some(_) = pre.iter().next() {
                 res.push(MarkdownNode::BlockEnd(BlockNode {
                     line: idx - 1,
@@ -180,45 +192,8 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
     println!("res: {:#?}", res);
     Ok(res)
 }
-fn strip_prefix_with_whitespace(string: &str, prefix: &str) -> String {
-    let mut res = vec![];
-    let mut to_remove = prefix.chars().collect_vec();
-    for char in string.chars() {
-        if to_remove.is_empty() {
-            res.push(char);
-            continue;
-        }
-        if char.is_whitespace() {
-            continue; // stip whitespace
-        }
-        if char == to_remove[0] {
-            to_remove = to_remove[1..].to_vec();
-            continue;
-        }
-
-        res.push(char);
-    }
-    res.into_iter().collect()
-}
-
-#[test]
-fn test_strip_prefix_with_whitespace() {
-    assert_eq!(
-        strip_prefix_with_whitespace("a s d fhello world", "asdf"),
-        "hello world".to_owned()
-    );
-    assert_eq!(
-        strip_prefix_with_whitespace("a s d f hello world", "asdf"),
-        " hello world".to_owned()
-    );
-    assert_eq!(
-        strip_prefix_with_whitespace("as dfasdf", "asdf"),
-        "asdf".to_owned()
-    );
-}
 fn parse_stream(
     line_stream: &mut CharStream,
-    original_line: &str,
     index: usize,
     pre: &mut Vec<String>,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
@@ -228,7 +203,6 @@ fn parse_stream(
         res.push(MarkdownNode::Headline(HeadlineNode::parse(
             line_stream,
             index,
-            original_line,
         )?));
     }
     if line_stream.test(|x| x == '>').is_some_and(|x| x) {
@@ -256,13 +230,25 @@ fn parse_line(
     println!("=> testing char {:?}", line_stream.preview(1));
     let mut res = Vec::new();
 
-    res.extend_from_slice(&parse_stream(line_stream, original_line, index, pre)?);
+    res.extend_from_slice(&parse_stream(line_stream, index, pre)?);
 
     let mut current = line_stream.take(1);
 
     loop {
         println!("?> current: {:?}", current);
-        let test = parse_stream(line_stream, original_line, index, pre)?;
+        if (current.len() > 2 && current.iter().rev().collect::<String>().starts_with("   ")) // last 3 chars are spaces
+            || current.iter().last().is_some_and(|x| *x == '\t')
+        // or is tab
+        {
+            // too much indentation, the leftover chars are now part of this paragraph
+            current.extend_from_slice(&line_stream.collect());
+            res.push(MarkdownNode::ParagraphNode(ParagraphNode {
+                line: index,
+                content: current.into_iter().collect(),
+            }));
+            break;
+        }
+        let test = parse_stream(line_stream, index, pre)?;
         if !test.is_empty() || line_stream.is_empty() {
             // Paragraph stuff
             let p = current.clone().into_iter().collect::<String>();
