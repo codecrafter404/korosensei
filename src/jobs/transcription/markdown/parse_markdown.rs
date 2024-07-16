@@ -98,28 +98,33 @@ pub struct LinkNode {
     href: String,
 }
 impl LinkNode {
-    fn parse(stream: &mut CharStream, line: usize) -> color_eyre::Result<LinkNode> {
+    fn parse(stream: &mut CharStream, line: usize) -> color_eyre::Result<Option<LinkNode>> {
+        let bak = stream.clone();
         if stream.take(1) != vec!['['] {
             return Err(eyre!("Expected to get link starting with '['"));
         }
-        println!("Test: {:?}; ", stream.test_while(|x| x != ']'));
         let content = stream
             .take_while(|x| x != ']')
             .into_iter()
             .collect::<String>();
-        let mut href = String::new();
-        if stream.take(2) == vec![']', '('] {
-            href = stream
+        let href = if stream.take(2) == vec![']', '('] {
+            stream
                 .take_while(|x| x != ')')
                 .into_iter()
-                .collect::<String>();
-
-            let _ = stream.take(1); // may be ')' or EOL
+                .collect::<String>()
         } else {
-            log::info!("Link on line {} doesn't have ']' or '('", line);
-            println!("Link on line {} doesn't have ']' or '('", line);
+            *stream = bak;
+            return Ok(None);
+        };
+
+        let x = stream.take(1); // may be ')' or EOL
+
+        if x != vec![')'] || href.contains(" ") {
+            *stream = bak;
+            return Ok(None);
         }
-        Ok(LinkNode::new(line, content, href))
+
+        Ok(Some(LinkNode::new(line, content, href)))
     }
     pub fn new(line: usize, content: String, href: String) -> LinkNode {
         LinkNode {
@@ -145,7 +150,6 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
     for (idx, original_line) in lines.clone().into_iter().enumerate() {
         let mut line = original_line.to_string();
 
-        println!("[{:2>0}] '{}', {:?}", idx, line, pre);
         while !pre.is_empty() {
             if line
                 .chars()
@@ -167,7 +171,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
 
         let mut line_stream = CharStream::new(&line.chars().collect_vec());
 
-        let mut line_res = parse_line(&mut line_stream, &line, idx, &mut pre, false)?;
+        let mut line_res = parse_line(&mut line_stream, &line, idx, &mut pre)?;
         if line_res.is_empty() {
             // newline
             line_res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
@@ -182,13 +186,12 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
         if idx + 1 == lines.len() {
             // close all blocks
             while let Some(_) = pre.iter().next() {
-                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx - 1, pre.len())));
+                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx, pre.len())));
                 pre.pop();
             }
         }
     }
 
-    println!("res: {:#?}", res);
     Ok(res)
 }
 fn parse_stream(
@@ -198,14 +201,12 @@ fn parse_stream(
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut res = Vec::new();
     if line_stream.test(|x| x == '#').is_some_and(|x| x) {
-        println!("-> got headline node");
         res.push(MarkdownNode::Headline(HeadlineNode::parse(
             line_stream,
             index,
         )?));
     }
     if line_stream.test(|x| x == '>').is_some_and(|x| x) {
-        println!("-> got block start node");
         res.push(MarkdownNode::BlockStart(BlockNode::parse(
             line_stream,
             index,
@@ -213,8 +214,9 @@ fn parse_stream(
         )?));
     }
     if line_stream.test(|x| x == '[').is_some_and(|x| x) {
-        println!("-> got link node");
-        res.push(MarkdownNode::LinkNode(LinkNode::parse(line_stream, index)?));
+        if let Some(x) = LinkNode::parse(line_stream, index)? {
+            res.push(MarkdownNode::LinkNode(x));
+        }
     }
 
     return Ok(res);
@@ -224,9 +226,7 @@ fn parse_line(
     original_line: &str,
     index: usize,
     pre: &mut Vec<String>,
-    test_only: bool,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
-    println!("=> testing char {:?}", line_stream.preview(1));
     let mut res = Vec::new();
 
     res.extend_from_slice(&parse_stream(line_stream, index, pre)?);
@@ -234,7 +234,6 @@ fn parse_line(
     let mut current = line_stream.take(1);
 
     loop {
-        println!("?> current: {:?}", current);
         if (current.len() > 2 && current.iter().rev().collect::<String>().starts_with("     ")) // last 5 chars are spaces
             || current.iter().last().is_some_and(|x| *x == '\t')
         // or is tab
@@ -252,7 +251,6 @@ fn parse_line(
             // Paragraph stuff
             let p = current.clone().into_iter().collect::<String>();
             if !p.is_empty() {
-                println!("-> Got paragraph");
                 res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(index, p)));
             }
 

@@ -1,3 +1,5 @@
+use serde::de::Expected;
+
 use crate::jobs::transcription::markdown::parse_markdown::{
     BlockNode, HeadlineNode, LinkNode, MarkdownNode, ParagraphNode,
 };
@@ -10,12 +12,36 @@ content
                 content
 # Hello World
 > hello?
-> >[This is](a link)";
-    assert_eq!(
-        super::parse_markdown::parse_markdown(input).unwrap(),
-        vec![]
-    );
-    assert!(false);
+> >[This is](alink)";
+    let expected = vec![
+        MarkdownNode::Headline(HeadlineNode::new(
+            0,
+            1,
+            "Hello world".to_owned(),
+            "# Hello world".to_owned(),
+        )),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(1, "content".to_string())),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(2, "                content".to_string())),
+        MarkdownNode::Headline(HeadlineNode::new(
+            3,
+            1,
+            "Hello World".to_owned(),
+            "# Hello World".to_owned(),
+        )),
+        MarkdownNode::BlockStart(BlockNode::new(4, 1)),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(4, " hello?".to_string())),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(5, " ".to_string())),
+        MarkdownNode::BlockStart(BlockNode::new(5, 2)),
+        MarkdownNode::LinkNode(LinkNode::new(5, "This is".to_owned(), "alink".to_owned())),
+        MarkdownNode::BlockEnd(BlockNode::new(5, 2)),
+        MarkdownNode::BlockEnd(BlockNode::new(5, 1)),
+    ];
+
+    let res = super::parse_markdown::parse_markdown(input).unwrap();
+    assert_eq!(res.len(), expected.len());
+    for (idx, res) in res.iter().enumerate() {
+        assert_eq!(*res, expected[idx]);
+    }
 }
 #[test]
 fn test_white_space() {
@@ -50,17 +76,32 @@ Empty line (whith whitespaces):
             MarkdownNode::ParagraphNode(ParagraphNode::new(3, "    ".to_owned())),
             MarkdownNode::BlockStart(BlockNode::new(3, 2)),
             MarkdownNode::LinkNode(LinkNode::new(3, "This is".to_owned(), "alink".to_owned())),
-            MarkdownNode::BlockEnd(BlockNode::new(4, 2)),
-            MarkdownNode::BlockEnd(BlockNode::new(4, 1)),
+            MarkdownNode::BlockEnd(BlockNode::new(3, 2)),
+            MarkdownNode::BlockEnd(BlockNode::new(3, 1)),
             MarkdownNode::Headline(HeadlineNode::new(
-                5,
+                4,
                 1,
                 "Test".to_owned(),
                 "#                   Test".to_owned()
             )),
             MarkdownNode::ParagraphNode(ParagraphNode::new(5, "  ".to_owned())),
             MarkdownNode::LinkNode(LinkNode::new(5, "This is".to_owned(), "alink".to_owned())),
-            MarkdownNode::ParagraphNode(ParagraphNode::new(5, "    ".to_owned())),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(
+                5,
+                "                                                    [This is](a link)".to_owned()
+            )),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(6, "    ".to_owned())),
+            MarkdownNode::LinkNode(LinkNode::new(6, "this is".to_owned(), "alink".to_owned())),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(
+                7,
+                "Empty line (whith whitespaces):".to_owned()
+            )),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(
+                8,
+                "                        ".to_owned()
+            )),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(9, "".to_owned())),
+            MarkdownNode::ParagraphNode(ParagraphNode::new(10, "".to_owned())),
         ]
     );
 }
@@ -91,4 +132,25 @@ Hello world
             MarkdownNode::ParagraphNode(ParagraphNode::new(2, "".to_owned()))
         ]
     );
+}
+#[test]
+fn test_parse_broken_links() {
+    let input = "\
+[This is a link(href)
+[This is ](alink)
+[This is] (alink)
+[This is](a link)
+[This is](alink";
+    let expected = vec![
+        MarkdownNode::ParagraphNode(ParagraphNode::new(0, "[This is a link(href)".into())),
+        MarkdownNode::LinkNode(LinkNode::new(1, "This is ".into(), "alink".into())),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(2, "[This is] (alink)".into())),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(3, "[This is](a link)".into())),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(4, "[This is](alink".into())),
+    ];
+    let res = super::parse_markdown::parse_markdown(&input).unwrap();
+    assert_eq!(res.len(), expected.len());
+    for (idx, res) in res.into_iter().enumerate() {
+        assert_eq!(res, expected[idx]);
+    }
 }
