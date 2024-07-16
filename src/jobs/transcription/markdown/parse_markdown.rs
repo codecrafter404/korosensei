@@ -71,7 +71,7 @@ impl BlockNode {
     }
 
     fn construct(&self) -> String {
-        return ">".to_string();
+        return "".to_string();
     }
     pub fn new(line: usize, level: usize) -> BlockNode {
         BlockNode { line, level }
@@ -150,7 +150,7 @@ impl MarkdownNode {
             MarkdownNode::Headline(x) => x.construct(),
             MarkdownNode::ParagraphNode(x) => x.construct(),
             MarkdownNode::BlockStart(x) => x.construct(),
-            MarkdownNode::BlockEnd(x) => String::new(),
+            MarkdownNode::BlockEnd(x) => x.construct(),
             MarkdownNode::LinkNode(x) => x.construct(),
         }
     }
@@ -205,6 +205,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
         }
     }
 
+    println!("res: {:?}", res);
     Ok(res)
 }
 fn parse_stream(
@@ -221,6 +222,7 @@ fn parse_stream(
         )?));
     }
     if line_stream.test(|x| x == '>').is_some_and(|x| x) {
+        println!("H: {:?}", line_stream.get_history());
         if line_stream
             .get_history()
             .iter()
@@ -231,6 +233,7 @@ fn parse_stream(
                 index,
                 pre.len() + 1,
             )?));
+            pre.push(">".to_owned());
         }
     }
     if line_stream.test(|x| x == '[').is_some_and(|x| x) {
@@ -251,7 +254,7 @@ fn parse_line(
 
     res.extend_from_slice(&parse_stream(line_stream, index, pre, original_line)?);
 
-    let mut current = line_stream.take(1);
+    let mut current = vec![];
 
     loop {
         //TODO: this is different when parsing headers, (they arent valid anymore after 3x'' outside of any blocks)
@@ -286,16 +289,6 @@ fn parse_line(
             current.extend_from_slice(&line_stream.take(1));
         }
     }
-    if res
-        .iter()
-        .find(|x| match x {
-            MarkdownNode::BlockStart(_) => true,
-            _ => false,
-        })
-        .is_some()
-    {
-        pre.push(">".to_string());
-    }
 
     Ok(res)
 }
@@ -317,27 +310,49 @@ pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> color_eyre::Result
     let mut result = Vec::new();
     let mut pre = Vec::new();
     for (idx, line) in lines {
-        let mut pre_this = format!("{}", pre.join(" "));
         let mut res = String::new();
-        for l in line {
-            res = format!("{}{}", res, l.construct());
+        let mut to_pop = 0;
+        for (idx, l) in line.iter().enumerate() {
+            //TODO: this is too much spagetty code, therefore set the stripped property at the first element of the newline, which containes pre with accurate spacing
+            if !l.construct().trim().is_empty()
+                && line.iter().nth(idx + 1).is_some_and(|x| match x {
+                    MarkdownNode::BlockStart(_) => true,
+                    _ => false,
+                })
+            {
+            } else {
+                res = format!("{}{}", res, l.construct());
+            }
             match l {
                 MarkdownNode::BlockStart(_) => {
                     pre.push(">");
                 }
                 MarkdownNode::BlockEnd(_) => {
-                    pre.pop();
+                    to_pop += 1;
                 }
                 _ => {}
             }
         }
-        println!("[{:3>0}] {:?} {:?}", idx, pre_this, res);
+        let mut pre_this = format!("{}", pre.join(" "));
+        println!(
+            "[{:3>0}] {:?} {:?} {:?}; Line: {:?}; Starts with: {:?}",
+            idx,
+            pre_this,
+            res,
+            pre,
+            line,
+            pre_this.chars().next().map(|x| format!("{:x}", x as u32))
+        );
         if !pre_this.is_empty() && !res.starts_with(" ") {
             pre_this = format!("{} ", pre_this);
         }
         res = format!("{}{}", pre_this, res);
 
         result.push(res);
+
+        for _ in 0..to_pop {
+            pre.pop();
+        }
     }
     Ok(result.join("\n"))
 }

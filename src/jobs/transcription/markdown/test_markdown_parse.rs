@@ -200,15 +200,20 @@ fn construction_test() {
 }
 #[test]
 fn test_formatting() {
-    let input = "\
->>";
-    let expected = "\
-> > ";
+    let input = ">>";
+    let expected = "> > ";
+    let res = super::parse_markdown::parse_markdown(input).unwrap();
     assert_eq!(
-        super::parse_markdown::construct_markdown(
-            super::parse_markdown::parse_markdown(input).unwrap()
-        )
-        .unwrap(),
+        res,
+        vec![
+            MarkdownNode::BlockStart(BlockNode::new(0, 1)),
+            MarkdownNode::BlockStart(BlockNode::new(0, 2)),
+            MarkdownNode::BlockEnd(BlockNode::new(0, 2)),
+            MarkdownNode::BlockEnd(BlockNode::new(0, 1)),
+        ]
+    );
+    assert_eq!(
+        super::parse_markdown::construct_markdown(res).unwrap(),
         expected
     );
 }
