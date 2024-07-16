@@ -70,6 +70,9 @@ impl CharStream {
     pub fn collect(&mut self) -> Vec<char> {
         self.take(self.chars.len())
     }
+    pub fn is_empty(&self) -> bool {
+        self.chars.is_empty()
+    }
 }
 
 #[test]
@@ -91,4 +94,5 @@ fn test_char_stream() {
     assert_eq!(stream.take(2), vec!['h', 'i']);
 
     assert_eq!(stream.collect(), vec!['d', 'e', 'f']);
+    assert!(stream.is_empty())
 }

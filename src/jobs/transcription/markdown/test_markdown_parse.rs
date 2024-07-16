@@ -5,7 +5,8 @@ fn test_headline_node() {
 content
                 content
 # Hello World
-";
+> hello?
+> >[This is](a link)";
     assert_eq!(
         super::parse_markdown::parse_markdown(input).unwrap(),
         vec![]
