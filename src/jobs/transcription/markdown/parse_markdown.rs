@@ -85,6 +85,7 @@ impl LinkNode {
         if stream.take(1) != vec!['['] {
             return Err(eyre!("Expected to get link starting with '['"));
         }
+        println!("Test: {:?}; ", stream.test_while(|x| x != ']'));
         let content = stream
             .take_while(|x| x != ']')
             .into_iter()
@@ -99,6 +100,7 @@ impl LinkNode {
             let _ = stream.take(1); // may be ')' or EOL
         } else {
             log::info!("Link on line {} doesn't have ']' or '('", line);
+            println!("Link on line {} doesn't have ']' or '('", line);
         }
         Ok(LinkNode {
             line,
@@ -131,19 +133,11 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
                 .collect::<String>()
                 .starts_with(&pre.join(""))
             {
-                let mut to_remove = pre.clone().join("").chars().collect_vec();
-                while let Some(x) = line.chars().next() {
-                    if x.is_whitespace() {
-                        line = line[1..].to_string();
-                    } else if to_remove.iter().next().is_some_and(|y| *y == x) {
-                        line = line[1..].to_string();
-                        if to_remove.len() != 1 {
-                            to_remove = to_remove[1..].to_vec();
-                        } else {
-                            break;
-                        }
-                    }
-                }
+                line = strip_prefix_with_whitespace(
+                    &line,
+                    &pre.clone().join("").chars().collect::<String>(),
+                )
+                .to_string();
                 break;
             } else {
                 res.push(MarkdownNode::BlockEnd(BlockNode {
@@ -161,7 +155,8 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
         if white_space.iter().filter(|x| **x == ' ').count() < 4
             && !white_space.iter().any(|x| *x == '\t')
         {
-            res.extend_from_slice(&parse_line(&mut line_stream, &line, idx, &mut pre)?);
+            line_stream.prepend(white_space);
+            res.extend_from_slice(&parse_line(&mut line_stream, &line, idx, &mut pre, false)?);
         } else {
             res.push(MarkdownNode::ParagraphNode(ParagraphNode {
                 line: idx,
@@ -185,7 +180,43 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
     println!("res: {:#?}", res);
     Ok(res)
 }
-fn parse_line(
+fn strip_prefix_with_whitespace(string: &str, prefix: &str) -> String {
+    let mut res = vec![];
+    let mut to_remove = prefix.chars().collect_vec();
+    for char in string.chars() {
+        if to_remove.is_empty() {
+            res.push(char);
+            continue;
+        }
+        if char.is_whitespace() {
+            continue; // stip whitespace
+        }
+        if char == to_remove[0] {
+            to_remove = to_remove[1..].to_vec();
+            continue;
+        }
+
+        res.push(char);
+    }
+    res.into_iter().collect()
+}
+
+#[test]
+fn test_strip_prefix_with_whitespace() {
+    assert_eq!(
+        strip_prefix_with_whitespace("a s d fhello world", "asdf"),
+        "hello world".to_owned()
+    );
+    assert_eq!(
+        strip_prefix_with_whitespace("a s d f hello world", "asdf"),
+        " hello world".to_owned()
+    );
+    assert_eq!(
+        strip_prefix_with_whitespace("as dfasdf", "asdf"),
+        "asdf".to_owned()
+    );
+}
+fn parse_stream(
     line_stream: &mut CharStream,
     original_line: &str,
     index: usize,
@@ -213,31 +244,47 @@ fn parse_line(
         res.push(MarkdownNode::LinkNode(LinkNode::parse(line_stream, index)?));
     }
 
-    if line_stream.is_empty() {
-        return Ok(res);
-    }
+    return Ok(res);
+}
+fn parse_line(
+    line_stream: &mut CharStream,
+    original_line: &str,
+    index: usize,
+    pre: &mut Vec<String>,
+    test_only: bool,
+) -> color_eyre::Result<Vec<MarkdownNode>> {
+    println!("=> testing char {:?}", line_stream.preview(1));
+    let mut res = Vec::new();
+
+    res.extend_from_slice(&parse_stream(line_stream, original_line, index, pre)?);
 
     let mut current = line_stream.take(1);
 
     loop {
-        let test = parse_line(line_stream, original_line, index, pre)?;
-        if !test.is_empty() {
+        println!("?> current: {:?}", current);
+        let test = parse_stream(line_stream, original_line, index, pre)?;
+        if !test.is_empty() || line_stream.is_empty() {
+            // Paragraph stuff
             let p = current.clone().into_iter().collect::<String>();
-            println!("-> Got paragraph");
-            res.push(MarkdownNode::ParagraphNode(ParagraphNode {
-                line: index,
-                content: p,
-            }));
+            if !p.is_empty() {
+                println!("-> Got paragraph");
+                res.push(MarkdownNode::ParagraphNode(ParagraphNode {
+                    line: index,
+                    content: p,
+                }));
+            }
+
+            // append
             res.extend_from_slice(&test);
-            break;
+
+            current = vec![]; // allows for multiple links in one line etc
         }
-        if !line_stream.is_empty() {
-            current.extend_from_slice(&line_stream.take(1));
-        } else {
+        if line_stream.is_empty() {
             break;
+        } else {
+            current.extend_from_slice(&line_stream.take(1));
         }
     }
-
     if res
         .iter()
         .find(|x| match x {

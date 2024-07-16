@@ -54,7 +54,7 @@ impl CharStream {
         F: Fn(char) -> bool,
     {
         let mut current: usize = 0;
-        for x in self.chars.iter() {
+        for x in self.chars.iter().rev() {
             if !test_function(*x) {
                 break;
             }
@@ -84,11 +84,16 @@ fn test_char_stream() {
             chars: vec!['f', 'e', 'd', 'c', 'b', 'a']
         }
     );
+    assert_eq!(stream.preview(1), vec!['a']);
     assert_eq!(stream.take(1)[0], 'a');
     assert_eq!(stream.len(), 5);
     assert_eq!(stream.test(|x| x.is_numeric()), Some(false));
-    assert_eq!(stream.test_while(|x| x != 'd'), 2);
-    assert_eq!(stream.take_while(|x| x != 'd'), vec!['b', 'c']);
+
+    stream.prepend(vec!['a']);
+    assert_eq!(stream.test_while(|x| x != 'd'), 3);
+
+    assert_eq!(stream.take_while(|x| x != 'd'), vec!['a', 'b', 'c']);
+    assert_eq!(stream.test(|x| x == 'd'), Some(true));
 
     stream.prepend(vec!['h', 'i']);
     assert_eq!(stream.take(2), vec!['h', 'i']);
