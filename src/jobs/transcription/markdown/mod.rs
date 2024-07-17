@@ -3,12 +3,15 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
-use color_eyre::eyre::{eyre, OptionExt};
+use color_eyre::eyre::{eyre, ContextCompat, OptionExt};
+use parse_markdown::MarkdownNode;
 
+use crate::utils::char_stream::ItemStream;
 use crate::utils::config::Config;
 use crate::utils::git::{self};
 use itertools::Itertools;
 
+mod nodes;
 mod parse_markdown;
 mod test_data;
 mod test_markdown_parse;
@@ -42,99 +45,39 @@ impl CorrelatingFile {
             )
         );
 
-        let mut result_buffer = Vec::new();
-        let lines = content.split("\n").collect_vec();
+        let parsed = parse_markdown::parse_markdown(content)?;
+        let mut stream = ItemStream::new(&parsed);
 
-        let mut in_block = -1; // -1 = no; 0 = in block; 1 = after link on last line; 2 = after some link, where there is a next line
-        let mut pre = None;
+        let mut result_buf = Vec::new();
 
-        for (idx, line) in lines.iter().enumerate() {
-            println!(
-                "in_block: {}; pre: {:?}; line: {} ({})",
-                in_block, pre, line, idx
+        let mut headlines = self
+            .headlines
+            .clone()
+            .into_iter()
+            .map(|x| x as usize)
+            .collect_vec();
+        headlines.sort();
+
+        for headline in headlines {
+            result_buf.extend_from_slice(
+                &stream.take_while(|x| x.get_headline().is_some_and(|x| x.line == headline)),
             );
+            let h = stream
+                .take_one()
+                .wrap_err(eyre!(format!(
+                    "expected to get headline on line {}; got nothing",
+                    headline
+                )))?
+                .get_headline()
+                .ok_or_eyre(eyre!(format!(
+                    "expected to get headline on line {}",
+                    headline
+                )))?;
 
-            let line = line.to_string();
-            if self.headlines.contains(&(idx as u64)) {
-                let (_, pre_pre) =
-                    lazy_regex::regex_captures!("^([\\s>]*)#{1,}.*$", &line).ok_or_eyre(
-                        format!("Expected to have headline on {}, got {}", idx, line),
-                    )?;
-                pre = Some(pre_pre.to_string());
-                result_buffer.push(line.clone());
-                continue;
-            }
-            if pre.is_none() {
-                result_buffer.push(line.clone());
-                continue;
-            }
-            let prefix = pre.clone().expect("Infallible");
-
-            if line.starts_with(&prefix) {
-                println!("-> starts_with prefix");
-                let x = line.strip_prefix(&prefix).expect("Infallible");
-
-                // empty line before
-                // or html block
-                if in_block == -1 && lazy_regex::regex_is_match!(r"^[ \t]*(<[^>]*>)*[ \t]*$", x) {
-                    println!("-> Empty line before or html block");
-                    result_buffer.push(line.clone());
-                    continue;
-                }
-                // in block, but no links yet
-                if (in_block < 1) && lazy_regex::regex_is_match!("^>[ \\t]*(_Links)?[ \\t]*$", x) {
-                    println!("-> in block, but no links yet");
-                    in_block = 0;
-                    result_buffer.push(line.clone());
-                    continue;
-                }
-                // link
-                if lazy_regex::regex_is_match!("^>[ \\t]*\\[[^\\]]*\\]\\([^\\)]*\\)[ \\t]*$", x) {
-                    println!("-> link");
-                    if (idx + 1) < lines.len() {
-                        result_buffer.push(line.clone());
-                        in_block = 2;
-                        continue; // Last line; immediately append & don't continue
-                    } else {
-                        in_block = 1;
-                    }
-                }
-            }
-
-            // inject content
-            let need_header = in_block == -1;
-
-            if in_block > -1 && in_block != 2 {
-                result_buffer.push(line.clone());
-            }
-
-            if need_header {
-                // result_buffer.push(format!("{}", prefix));
-                result_buffer.push(format!("{}> _Links", prefix));
-                result_buffer.push(format!("{}> ", prefix));
-            }
-            result_buffer.push(format!("{}> {}", prefix, transcript_link));
-            result_buffer.push(format!("{}", prefix));
-
-            if in_block == -1 {
-                result_buffer.push(line.clone());
-            }
-            if in_block == 2 {
-                let mut line_test = String::new();
-                if let Some(pre) = pre {
-                    line_test = line.strip_prefix(&pre).unwrap_or(&line).to_string();
-                } else {
-                    line_test = line.clone();
-                };
-                if !line_test.trim().is_empty() {
-                    result_buffer.push(line.clone());
-                }
-            }
-            // reset
-            in_block = -1;
-            pre = None;
+            result_buf.push(MarkdownNode::Headline(h));
         }
-        Ok(result_buffer.join("\n"))
+
+        unimplemented!()
     }
 }
 

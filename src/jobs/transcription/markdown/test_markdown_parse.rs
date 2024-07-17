@@ -1,7 +1,13 @@
 use itertools::Itertools as _;
 
-use crate::jobs::transcription::markdown::parse_markdown::{
-    BlockNode, HeadlineNode, LinkNode, MarkdownNode, ParagraphNode,
+use crate::{
+    jobs::transcription::markdown::{
+        nodes::{
+            block::BlockNode, headline::HeadlineNode, link::LinkNode, paragraph::ParagraphNode,
+        },
+        parse_markdown::MarkdownNode,
+    },
+    utils::char_stream::ItemStream,
 };
 
 #[test]
@@ -263,7 +269,9 @@ fn test_injection() {
 > lets go
 > INJECTED
 > hello?
-";
+"
+    .split("\n")
+    .collect_vec();
     let parsed = super::parse_markdown::parse_markdown(input).unwrap();
     assert_eq!(
         parsed,
@@ -281,5 +289,61 @@ fn test_injection() {
             MarkdownNode::BlockEnd(BlockNode::new(2, 1, None)),
             MarkdownNode::ParagraphNode(ParagraphNode::new(3, "".into(), None)),
         ]
-    )
+    );
+    let mut stream = ItemStream::new(&parsed);
+    let mut before = stream.take_while(|x| {
+        if let MarkdownNode::BlockStart(_) = x {
+            return false;
+        } else {
+            return true;
+        }
+    });
+
+    before.extend_from_slice(&stream.take(1));
+
+    let ps = stream.test_while(|x| x.get_paragraph().is_some());
+
+    before.extend_from_slice(&stream.take(ps - 1));
+
+    let mut p = stream.take(1)[0].get_paragraph().unwrap();
+
+    before.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+        p.line,
+        format!("{}INJECTED", p.get_whitespace()),
+        p.stripped.clone(),
+    )));
+
+    p.line += 1;
+    before.push(MarkdownNode::ParagraphNode(p.clone()));
+
+    before.extend_from_slice(
+        &stream
+            .collect()
+            .into_iter()
+            .map(|x| {
+                let mut x = x;
+                x.increment_line_by(1);
+                x
+            })
+            .collect_vec(),
+    );
+    let res = super::parse_markdown::construct_markdown(before)
+        .unwrap()
+        .split("\n")
+        .map(|x| x.to_string())
+        .collect_vec();
+    assert_eq!(res.len(), expected.len());
+    for (idx, res) in res.into_iter().enumerate() {
+        assert_eq!(res, expected[idx], "{}", idx);
+    }
+}
+
+#[test]
+fn test_html_node() {
+    let input = "\
+# HTML
+<!--comment-->
+text
+<start>content</start>
+<br/>";
 }

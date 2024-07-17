@@ -1,157 +1,12 @@
 use color_eyre::eyre::{eyre, OptionExt};
 use itertools::Itertools;
 
-use crate::utils::{char_stream::CharStream, string};
+use crate::utils::{char_stream::ItemStream, string};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HeadlineNode {
-    pub line: usize,
-    pub level: usize,
-    /// can only whitespace etc. (also linebreaks)
-    pub content: String,
-    pub original: String,
-    pub stripped: Option<String>,
-}
-impl HeadlineNode {
-    fn parse(content: &mut CharStream<char>, line: usize) -> color_eyre::Result<Self>
-    where
-        Self: Sized,
-    {
-        let original = content.prev_collect().into_iter().collect();
-        let content = content.collect().into_iter().collect::<String>();
-        let (_, hash, text) = lazy_regex::regex_captures!(r"^\s{0,3}(#{1,})\s{1,}(.*)$", &content)
-            .ok_or_eyre(format!("Expected to match a headline, got '{}'", content))?;
-        Ok(HeadlineNode::new(
-            line,
-            hash.len(),
-            text.to_string(),
-            original,
-            None,
-        ))
-    }
+use super::nodes::{
+    block::BlockNode, headline::HeadlineNode, link::LinkNode, paragraph::ParagraphNode,
+};
 
-    fn construct(&self) -> String {
-        self.original.clone()
-    }
-    pub fn new(
-        line: usize,
-        level: usize,
-        content: String,
-        original: String,
-        stripped: Option<String>,
-    ) -> HeadlineNode {
-        HeadlineNode {
-            line,
-            level,
-            content,
-            original,
-            stripped,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParagraphNode {
-    pub line: usize,
-    /// can be only whitespace etc. (also linebreaks)
-    pub content: String,
-    pub stripped: Option<String>,
-}
-impl ParagraphNode {
-    pub fn new(line: usize, content: String, stripped: Option<String>) -> ParagraphNode {
-        ParagraphNode {
-            line,
-            content,
-            stripped,
-        }
-    }
-    pub fn construct(&self) -> String {
-        self.content.clone()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BlockNode {
-    /// at this line is the first or last '>'
-    pub line: usize,
-    /// nested level
-    pub level: usize,
-    pub stripped: Option<String>,
-}
-impl BlockNode {
-    fn parse(
-        content: &mut CharStream<char>,
-        line: usize,
-        level: usize,
-    ) -> color_eyre::Result<BlockNode> {
-        if content.take(1) != vec!['>'] {
-            return Err(eyre!("Expected to get Block starting with '>'"));
-        }
-        Ok(BlockNode::new(line, level, None))
-    }
-
-    fn construct(&self) -> String {
-        return ">".to_string();
-    }
-    pub fn new(line: usize, level: usize, stripped: Option<String>) -> BlockNode {
-        BlockNode {
-            line,
-            level,
-            stripped,
-        }
-    }
-}
-
-/// NOTE: The content will not be reparsed!
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkNode {
-    pub line: usize,
-    /// can be "" or only whitespace etc. (also linebreaks)
-    pub content: String,
-    /// can be "" or only whitespace etc.
-    pub href: String,
-    pub stripped: Option<String>,
-}
-impl LinkNode {
-    fn parse(stream: &mut CharStream<char>, line: usize) -> color_eyre::Result<Option<LinkNode>> {
-        let bak = stream.clone();
-        if stream.take(1) != vec!['['] {
-            return Err(eyre!("Expected to get link starting with '['"));
-        }
-        let content = stream
-            .take_while(|x| x != ']')
-            .into_iter()
-            .collect::<String>();
-        let href = if stream.take(2) == vec![']', '('] {
-            stream
-                .take_while(|x| x != ')')
-                .into_iter()
-                .collect::<String>()
-        } else {
-            *stream = bak;
-            return Ok(None);
-        };
-
-        let x = stream.take(1); // may be ')' or EOL
-
-        if x != vec![')'] || href.contains(" ") {
-            *stream = bak;
-            return Ok(None);
-        }
-
-        Ok(Some(LinkNode::new(line, content, href, None)))
-    }
-    pub fn new(line: usize, content: String, href: String, stripped: Option<String>) -> LinkNode {
-        LinkNode {
-            line,
-            content,
-            href,
-            stripped,
-        }
-    }
-    pub fn construct(&self) -> String {
-        format!("[{}]({})", self.content, self.href)
-    }
-}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkdownNode {
     Headline(HeadlineNode),
@@ -175,7 +30,7 @@ impl MarkdownNode {
             MarkdownNode::Headline(x) => x.construct(),
             MarkdownNode::ParagraphNode(x) => x.construct(),
             MarkdownNode::BlockStart(x) => x.construct(),
-            MarkdownNode::BlockEnd(x) => String::new(),
+            MarkdownNode::BlockEnd(_) => String::new(),
             MarkdownNode::LinkNode(x) => x.construct(),
         }
     }
@@ -195,6 +50,45 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.stripped.clone(),
             MarkdownNode::BlockEnd(x) => x.stripped.clone(),
             MarkdownNode::LinkNode(x) => x.stripped.clone(),
+        }
+    }
+    pub fn get_headline(&self) -> Option<HeadlineNode> {
+        match self.clone() {
+            MarkdownNode::Headline(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn get_paragraph(&self) -> Option<ParagraphNode> {
+        match self.clone() {
+            MarkdownNode::ParagraphNode(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn get_block_start(&self) -> Option<BlockNode> {
+        match self.clone() {
+            MarkdownNode::BlockStart(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn get_block_end(&self) -> Option<BlockNode> {
+        match self.clone() {
+            MarkdownNode::BlockEnd(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn get_link(&self) -> Option<LinkNode> {
+        match self.clone() {
+            MarkdownNode::LinkNode(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn increment_line_by(&mut self, offset: usize) {
+        match self {
+            MarkdownNode::Headline(x) => x.line += offset,
+            MarkdownNode::ParagraphNode(x) => x.line += offset,
+            MarkdownNode::BlockStart(x) => x.line += offset,
+            MarkdownNode::BlockEnd(x) => x.line += offset,
+            MarkdownNode::LinkNode(x) => x.line += offset,
         }
     }
 }
@@ -232,7 +126,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
             }
         }
 
-        let mut line_stream = CharStream::new(&line.chars().collect_vec());
+        let mut line_stream = ItemStream::new(&line.chars().collect_vec());
 
         let mut line_res = parse_line(&mut line_stream, idx, &mut pre)?;
         if line_res.is_empty() {
@@ -268,11 +162,10 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
         res.extend_from_slice(&line_res);
     }
 
-    println!("res: {:?}", res);
     Ok(res)
 }
 fn parse_stream(
-    line_stream: &mut CharStream<char>,
+    line_stream: &mut ItemStream<char>,
     index: usize,
     pre: &mut Vec<String>,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
@@ -284,7 +177,6 @@ fn parse_stream(
         )?));
     }
     if line_stream.test(|x| x == '>').is_some_and(|x| x) {
-        println!("H: {:?}", line_stream.get_history());
         if line_stream
             .get_history()
             .iter()
@@ -307,7 +199,7 @@ fn parse_stream(
     return Ok(res);
 }
 fn parse_line(
-    line_stream: &mut CharStream<char>,
+    line_stream: &mut ItemStream<char>,
     index: usize,
     pre: &mut Vec<String>,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
@@ -376,7 +268,6 @@ pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> color_eyre::Result
         let mut res = String::new();
         for (_, l) in line.iter().enumerate() {
             if let Some(x) = l.get_stripped() {
-                println!("[{}] got stripped {:?}", idx, x);
                 res.push_str(&x);
             }
             res.push_str(&l.construct());
