@@ -57,6 +57,7 @@ impl CorrelatingFile {
             .map(|x| x as usize)
             .collect_vec();
         headlines.sort();
+        headlines.dedup();
 
         for headline in headlines {
             result_buf.extend_from_slice(
@@ -75,6 +76,124 @@ impl CorrelatingFile {
                 )))?;
 
             result_buf.push(MarkdownNode::Headline(h));
+            let htmls = stream.take_while(|x| {
+                x.get_html().is_some() || x.get_paragraph().is_some_and(|x| x.content == "")
+            });
+            result_buf.extend_from_slice(&htmls);
+
+            // check if is block
+            // true: skip past all empty paragraphs -> check if paragraph =
+
+            let next = stream.take_one();
+            let mut need_header = false;
+            let mut block_end = None;
+            let mut need_block = false;
+            match next {
+                Some(x) => {
+                    result_buf.push(x.clone());
+                    if let Some(block_start) = x.get_block_start() {
+                        let bak = stream.clone();
+
+                        // existing block
+                        let mut block_nodes = stream.take_while(|x| {
+                            x.get_paragraph()
+                                .is_some_and(|x| x.content == "" || x.content == " ")
+                        });
+
+                        if stream
+                            .test(|x| {
+                                x.get_paragraph()
+                                    .is_some_and(|x| x.content.trim() == "_Links")
+                            })
+                            .is_some_and(|x| x)
+                        {
+                            block_nodes.extend_from_slice(&stream.take(1));
+
+                            // all empty lines before links
+                            block_nodes.extend_from_slice(&stream.take_while(|x| {
+                                x.get_paragraph()
+                                    .is_some_and(|x| x.content == "" || x.content == "")
+                            }));
+
+                            // existing links
+                            loop {
+                                let block_nodes_bak = block_nodes.clone();
+                                let mut line = None;
+                                if stream
+                                    .test(|x| {
+                                        x.get_paragraph()
+                                            .is_some_and(|x| x.content.trim().is_empty())
+                                    })
+                                    .is_some_and(|x| x)
+                                {
+                                    let c = stream.take(1)[0].get_paragraph().expect("Infallible");
+                                    line = Some(c.line.clone());
+                                    block_nodes.push(MarkdownNode::ParagraphNode(c));
+                                }
+                                if stream.test(|x| x.get_link().is_some()).is_some_and(|x| x) {
+                                    let c = stream
+                                        .take_one()
+                                        .expect("Infallible")
+                                        .get_link()
+                                        .expect("Infallible");
+                                    if let Some(line) = line {
+                                        if line != c.line {
+                                            // it was a newline
+                                            block_nodes = block_nodes_bak;
+                                            break;
+                                        }
+                                    }
+                                    block_nodes.push(MarkdownNode::LinkNode(c));
+                                } else {
+                                    if line.is_none() {
+                                        // give up
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // expected end of block
+                            if stream
+                                .test(|x| {
+                                    x.get_block_end()
+                                        .is_some_and(|x| x.level == block_start.level)
+                                })
+                                .is_some_and(|x| x)
+                            {
+                                block_end = Some(
+                                    stream
+                                        .take_one()
+                                        .expect("Infallible")
+                                        .get_block_end()
+                                        .expect("Infallible"),
+                                );
+                                result_buf.extend_from_slice(&block_nodes);
+                            } else {
+                                stream = bak;
+                            }
+                        } else {
+                            stream = bak;
+                        }
+                    }
+                }
+                None => {
+                    // add header
+                    need_header = true;
+                }
+            }
+            let mut line_offset = 0;
+            let last_item = result_buf.last().expect("Infallible");
+            let last_block_level = result_buf
+                .iter()
+                .rev()
+                .find(|x| x.get_block_start().is_some() || x.get_block_end().is_some())
+                .map(|x| match x {
+                    MarkdownNode::BlockStart(x) => x.level,
+                    MarkdownNode::BlockEnd(x) => x.level - 1,
+                    _ => 0,
+                })
+                .unwrap_or(0);
+            if need_header {}
         }
 
         unimplemented!()

@@ -18,7 +18,7 @@ pub enum MarkdownNode {
     HtmlNode(HtmlNode),
 }
 impl MarkdownNode {
-    fn get_line(&self) -> usize {
+    pub fn get_line(&self) -> usize {
         match &self {
             MarkdownNode::Headline(x) => x.line,
             MarkdownNode::ParagraphNode(x) => x.line,
