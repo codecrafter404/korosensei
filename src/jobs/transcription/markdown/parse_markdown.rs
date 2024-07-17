@@ -4,7 +4,8 @@ use itertools::Itertools;
 use crate::utils::{char_stream::ItemStream, string};
 
 use super::nodes::{
-    block::BlockNode, headline::HeadlineNode, link::LinkNode, paragraph::ParagraphNode,
+    block::BlockNode, headline::HeadlineNode, html::HtmlNode, link::LinkNode,
+    paragraph::ParagraphNode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +15,7 @@ pub enum MarkdownNode {
     BlockStart(BlockNode),
     BlockEnd(BlockNode),
     LinkNode(LinkNode),
+    HtmlNode(HtmlNode),
 }
 impl MarkdownNode {
     fn get_line(&self) -> usize {
@@ -23,6 +25,7 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.line,
             MarkdownNode::BlockEnd(x) => x.line,
             MarkdownNode::LinkNode(x) => x.line,
+            MarkdownNode::HtmlNode(x) => x.line,
         }
     }
     fn construct(&self) -> String {
@@ -32,6 +35,7 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.construct(),
             MarkdownNode::BlockEnd(_) => String::new(),
             MarkdownNode::LinkNode(x) => x.construct(),
+            MarkdownNode::HtmlNode(x) => x.construct(),
         }
     }
     fn set_stripped(&mut self, stripped: Option<String>) {
@@ -41,6 +45,7 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.stripped = stripped,
             MarkdownNode::BlockEnd(x) => x.stripped = stripped,
             MarkdownNode::LinkNode(x) => x.stripped = stripped,
+            MarkdownNode::HtmlNode(x) => x.stripped = stripped,
         }
     }
     fn get_stripped(&self) -> Option<String> {
@@ -50,6 +55,13 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.stripped.clone(),
             MarkdownNode::BlockEnd(x) => x.stripped.clone(),
             MarkdownNode::LinkNode(x) => x.stripped.clone(),
+            MarkdownNode::HtmlNode(x) => x.stripped.clone(),
+        }
+    }
+    pub fn get_html(&self) -> Option<HtmlNode> {
+        match self.clone() {
+            MarkdownNode::HtmlNode(x) => Some(x),
+            _ => None,
         }
     }
     pub fn get_headline(&self) -> Option<HeadlineNode> {
@@ -89,6 +101,7 @@ impl MarkdownNode {
             MarkdownNode::BlockStart(x) => x.line += offset,
             MarkdownNode::BlockEnd(x) => x.line += offset,
             MarkdownNode::LinkNode(x) => x.line += offset,
+            MarkdownNode::HtmlNode(x) => x.line += offset,
         }
     }
 }
@@ -193,6 +206,11 @@ fn parse_stream(
     if line_stream.test(|x| x == '[').is_some_and(|x| x) {
         if let Some(x) = LinkNode::parse(line_stream, index)? {
             res.push(MarkdownNode::LinkNode(x));
+        }
+    }
+    if line_stream.test(|x| x == '<').is_some_and(|x| x) {
+        if let Some(x) = HtmlNode::parse(line_stream, index)? {
+            res.push(MarkdownNode::HtmlNode(x));
         }
     }
 

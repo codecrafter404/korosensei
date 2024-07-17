@@ -10,6 +10,8 @@ use crate::{
     utils::char_stream::ItemStream,
 };
 
+use super::nodes::html::HtmlNode;
+
 #[test]
 fn test_headline_node() {
     let input = "\
@@ -342,8 +344,80 @@ fn test_injection() {
 fn test_html_node() {
     let input = "\
 # HTML
-<!--comment-->
+<!--comment---->
 text
 <start>content</start>
-<br/>";
+<br/><br />
+<br/
+br/>
+<img src=\"hello\" /><img asdf asdf >content</img>
+<a>content</b>";
+    let expected = vec![
+        MarkdownNode::Headline(HeadlineNode::new(
+            0,
+            1,
+            "HTML".into(),
+            "# HTML".into(),
+            None,
+        )),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            1,
+            "<!--...-->".into(),
+            "comment--".into(),
+            "<!--comment---->".into(),
+            "".into(),
+            None,
+        )),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(2, "text".into(), None)),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            3,
+            "start".into(),
+            "content".into(),
+            "<start>content</start>".into(),
+            "".into(),
+            None,
+        )),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            4,
+            "br".into(),
+            "".into(),
+            "<br/>".into(),
+            "".into(),
+            None,
+        )),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            4,
+            "br".into(),
+            "".into(),
+            "<br />".into(),
+            "".into(),
+            None,
+        )),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(5, "<br/".into(), None)),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(6, "br/>".into(), None)),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            7,
+            "img".into(),
+            "".into(),
+            "<img src=\"hello\" />".into(),
+            "src=\"hello\" ".into(),
+            None,
+        )),
+        MarkdownNode::HtmlNode(HtmlNode::new(
+            7,
+            "img".into(),
+            "content".into(),
+            "<img asdf asdf >content</img>".into(),
+            "asdf asdf ".into(),
+            None,
+        )),
+        MarkdownNode::ParagraphNode(ParagraphNode::new(8, "<a>content</b>".into(), None)),
+    ];
+    let parsed = super::parse_markdown::parse_markdown(&input).unwrap();
+
+    assert_eq!(expected.len(), parsed.len(), "{:#?}", parsed);
+
+    for (i, x) in parsed.into_iter().enumerate() {
+        assert_eq!(x, expected[i], "Line: {}", i);
+    }
 }

@@ -41,12 +41,28 @@ where
     }
     pub fn test_window(&self, window: Vec<T>) -> Option<bool> {
         let mut dummy = self.clone();
-        let test_window = dummy.take(3);
+        let test_window = dummy.take(window.len());
         if test_window.len() != window.len() {
             return None;
         }
         for (idx, w) in window.into_iter().enumerate() {
             if w != test_window[idx] {
+                return Some(false);
+            }
+        }
+        return Some(true);
+    }
+    pub fn test_window_custom<F>(&self, window: Vec<T>, test: F) -> Option<bool>
+    where
+        F: Fn((T, T)) -> bool,
+    {
+        let mut dummy = self.clone();
+        let test_window = dummy.take(window.len());
+        if test_window.len() != window.len() {
+            return None;
+        }
+        for (idx, w) in window.into_iter().enumerate() {
+            if !test((w, test_window[idx].clone())) {
                 return Some(false);
             }
         }
@@ -131,6 +147,12 @@ fn test_char_stream() {
     assert_eq!(
         stream.test_window(vec!['a', 'b', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']),
         None
+    );
+    assert_eq!(
+        stream.test_window_custom(vec!['A', 'b', 'C'], |(a, b)| {
+            a.to_ascii_lowercase() == b.to_ascii_lowercase()
+        }),
+        Some(true)
     );
 
     assert_eq!(stream.take_while(|x| x != 'd'), vec!['a', 'b', 'c']);
