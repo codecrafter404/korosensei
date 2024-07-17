@@ -10,9 +10,10 @@ pub struct HeadlineNode {
     /// can only whitespace etc. (also linebreaks)
     pub content: String,
     pub original: String,
+    pub stripped: Option<String>,
 }
 impl HeadlineNode {
-    fn parse(content: &mut CharStream, line: usize) -> color_eyre::Result<Self>
+    fn parse(content: &mut CharStream<char>, line: usize) -> color_eyre::Result<Self>
     where
         Self: Sized,
     {
@@ -25,18 +26,26 @@ impl HeadlineNode {
             hash.len(),
             text.to_string(),
             original,
+            None,
         ))
     }
 
     fn construct(&self) -> String {
         self.original.clone()
     }
-    pub fn new(line: usize, level: usize, content: String, original: String) -> HeadlineNode {
+    pub fn new(
+        line: usize,
+        level: usize,
+        content: String,
+        original: String,
+        stripped: Option<String>,
+    ) -> HeadlineNode {
         HeadlineNode {
             line,
             level,
             content,
             original,
+            stripped,
         }
     }
 }
@@ -45,10 +54,15 @@ pub struct ParagraphNode {
     pub line: usize,
     /// can be only whitespace etc. (also linebreaks)
     pub content: String,
+    pub stripped: Option<String>,
 }
 impl ParagraphNode {
-    pub fn new(line: usize, content: String) -> ParagraphNode {
-        ParagraphNode { line, content }
+    pub fn new(line: usize, content: String, stripped: Option<String>) -> ParagraphNode {
+        ParagraphNode {
+            line,
+            content,
+            stripped,
+        }
     }
     pub fn construct(&self) -> String {
         self.content.clone()
@@ -61,34 +75,44 @@ pub struct BlockNode {
     pub line: usize,
     /// nested level
     pub level: usize,
+    pub stripped: Option<String>,
 }
 impl BlockNode {
-    fn parse(content: &mut CharStream, line: usize, level: usize) -> color_eyre::Result<BlockNode> {
+    fn parse(
+        content: &mut CharStream<char>,
+        line: usize,
+        level: usize,
+    ) -> color_eyre::Result<BlockNode> {
         if content.take(1) != vec!['>'] {
             return Err(eyre!("Expected to get Block starting with '>'"));
         }
-        Ok(BlockNode::new(line, level))
+        Ok(BlockNode::new(line, level, None))
     }
 
     fn construct(&self) -> String {
-        return "".to_string();
+        return ">".to_string();
     }
-    pub fn new(line: usize, level: usize) -> BlockNode {
-        BlockNode { line, level }
+    pub fn new(line: usize, level: usize, stripped: Option<String>) -> BlockNode {
+        BlockNode {
+            line,
+            level,
+            stripped,
+        }
     }
 }
 
 /// NOTE: The content will not be reparsed!
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkNode {
-    line: usize,
+    pub line: usize,
     /// can be "" or only whitespace etc. (also linebreaks)
-    content: String,
+    pub content: String,
     /// can be "" or only whitespace etc.
-    href: String,
+    pub href: String,
+    pub stripped: Option<String>,
 }
 impl LinkNode {
-    fn parse(stream: &mut CharStream, line: usize) -> color_eyre::Result<Option<LinkNode>> {
+    fn parse(stream: &mut CharStream<char>, line: usize) -> color_eyre::Result<Option<LinkNode>> {
         let bak = stream.clone();
         if stream.take(1) != vec!['['] {
             return Err(eyre!("Expected to get link starting with '['"));
@@ -114,13 +138,14 @@ impl LinkNode {
             return Ok(None);
         }
 
-        Ok(Some(LinkNode::new(line, content, href)))
+        Ok(Some(LinkNode::new(line, content, href, None)))
     }
-    pub fn new(line: usize, content: String, href: String) -> LinkNode {
+    pub fn new(line: usize, content: String, href: String, stripped: Option<String>) -> LinkNode {
         LinkNode {
             line,
             content,
             href,
+            stripped,
         }
     }
     pub fn construct(&self) -> String {
@@ -150,8 +175,26 @@ impl MarkdownNode {
             MarkdownNode::Headline(x) => x.construct(),
             MarkdownNode::ParagraphNode(x) => x.construct(),
             MarkdownNode::BlockStart(x) => x.construct(),
-            MarkdownNode::BlockEnd(x) => x.construct(),
+            MarkdownNode::BlockEnd(x) => String::new(),
             MarkdownNode::LinkNode(x) => x.construct(),
+        }
+    }
+    fn set_stripped(&mut self, stripped: Option<String>) {
+        match self {
+            MarkdownNode::Headline(x) => x.stripped = stripped,
+            MarkdownNode::ParagraphNode(x) => x.stripped = stripped,
+            MarkdownNode::BlockStart(x) => x.stripped = stripped,
+            MarkdownNode::BlockEnd(x) => x.stripped = stripped,
+            MarkdownNode::LinkNode(x) => x.stripped = stripped,
+        }
+    }
+    fn get_stripped(&self) -> Option<String> {
+        match self {
+            MarkdownNode::Headline(x) => x.stripped.clone(),
+            MarkdownNode::ParagraphNode(x) => x.stripped.clone(),
+            MarkdownNode::BlockStart(x) => x.stripped.clone(),
+            MarkdownNode::BlockEnd(x) => x.stripped.clone(),
+            MarkdownNode::LinkNode(x) => x.stripped.clone(),
         }
     }
 }
@@ -161,6 +204,7 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
     let mut res = Vec::new();
     let lines = content.split("\n").collect_vec();
     for (idx, original_line) in lines.clone().into_iter().enumerate() {
+        let mut stripped = String::new();
         let mut line = original_line.to_string();
 
         while !pre.is_empty() {
@@ -170,49 +214,67 @@ pub(crate) fn parse_markdown(content: &str) -> color_eyre::Result<Vec<MarkdownNo
                 .collect::<String>()
                 .starts_with(&pre.join(""))
             {
-                line = string::strip_prefix_with_whitespace(
+                let (cstripped, cline) = string::strip_prefix_with_whitespace(
                     &line,
                     &pre.clone().join("").chars().collect::<String>(),
-                )
-                .to_string();
+                );
+                line = cline;
+                stripped = cstripped;
+
                 break;
             } else {
-                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx - 1, pre.len())));
+                res.push(MarkdownNode::BlockEnd(BlockNode::new(
+                    idx - 1,
+                    pre.len(),
+                    None,
+                )));
                 pre.pop();
             }
         }
 
         let mut line_stream = CharStream::new(&line.chars().collect_vec());
 
-        let mut line_res = parse_line(&mut line_stream, &original_line, idx, &mut pre)?;
+        let mut line_res = parse_line(&mut line_stream, idx, &mut pre)?;
         if line_res.is_empty() {
             // newline
             line_res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                 idx,
                 "".to_owned(),
+                None,
             )));
         }
-
-        res.extend_from_slice(&line_res);
 
         // Last line cleanup
         if idx + 1 == lines.len() {
             // close all blocks
             while let Some(_) = pre.iter().next() {
-                res.push(MarkdownNode::BlockEnd(BlockNode::new(idx, pre.len())));
+                line_res.push(MarkdownNode::BlockEnd(BlockNode::new(idx, pre.len(), None)));
                 pre.pop();
             }
         }
+        //TODO: add stripped to first element of line
+
+        if !stripped.is_empty() {
+            if let Some(x) = line_res.first_mut() {
+                x.set_stripped(Some(stripped.clone()));
+            } else {
+                return Err(eyre!(format!(
+                    "on line {}, expected to find at least one element, found none",
+                    idx
+                )));
+            }
+        }
+
+        res.extend_from_slice(&line_res);
     }
 
     println!("res: {:?}", res);
     Ok(res)
 }
 fn parse_stream(
-    line_stream: &mut CharStream,
+    line_stream: &mut CharStream<char>,
     index: usize,
     pre: &mut Vec<String>,
-    original_line: &str,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut res = Vec::new();
     if line_stream.test(|x| x == '#').is_some_and(|x| x) {
@@ -245,14 +307,13 @@ fn parse_stream(
     return Ok(res);
 }
 fn parse_line(
-    line_stream: &mut CharStream,
-    original_line: &str,
+    line_stream: &mut CharStream<char>,
     index: usize,
     pre: &mut Vec<String>,
 ) -> color_eyre::Result<Vec<MarkdownNode>> {
     let mut res = Vec::new();
 
-    res.extend_from_slice(&parse_stream(line_stream, index, pre, original_line)?);
+    res.extend_from_slice(&parse_stream(line_stream, index, pre)?);
 
     let mut current = vec![];
 
@@ -267,15 +328,18 @@ fn parse_line(
             res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                 index,
                 current.into_iter().collect(),
+                None,
             )));
             break;
         }
-        let test = parse_stream(line_stream, index, pre, original_line)?;
+        let test = parse_stream(line_stream, index, pre)?;
         if !test.is_empty() || line_stream.is_empty() {
             // Paragraph stuff
             let p = current.clone().into_iter().collect::<String>();
             if !p.is_empty() {
-                res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(index, p)));
+                res.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                    index, p, None,
+                )));
             }
 
             // append
@@ -308,51 +372,17 @@ pub(crate) fn construct_markdown(nodes: Vec<MarkdownNode>) -> color_eyre::Result
     }
 
     let mut result = Vec::new();
-    let mut pre = Vec::new();
     for (idx, line) in lines {
         let mut res = String::new();
-        let mut to_pop = 0;
-        for (idx, l) in line.iter().enumerate() {
-            //TODO: this is too much spagetty code, therefore set the stripped property at the first element of the newline, which containes pre with accurate spacing
-            if !l.construct().trim().is_empty()
-                && line.iter().nth(idx + 1).is_some_and(|x| match x {
-                    MarkdownNode::BlockStart(_) => true,
-                    _ => false,
-                })
-            {
-            } else {
-                res = format!("{}{}", res, l.construct());
+        for (_, l) in line.iter().enumerate() {
+            if let Some(x) = l.get_stripped() {
+                println!("[{}] got stripped {:?}", idx, x);
+                res.push_str(&x);
             }
-            match l {
-                MarkdownNode::BlockStart(_) => {
-                    pre.push(">");
-                }
-                MarkdownNode::BlockEnd(_) => {
-                    to_pop += 1;
-                }
-                _ => {}
-            }
+            res.push_str(&l.construct());
         }
-        let mut pre_this = format!("{}", pre.join(" "));
-        println!(
-            "[{:3>0}] {:?} {:?} {:?}; Line: {:?}; Starts with: {:?}",
-            idx,
-            pre_this,
-            res,
-            pre,
-            line,
-            pre_this.chars().next().map(|x| format!("{:x}", x as u32))
-        );
-        if !pre_this.is_empty() && !res.starts_with(" ") {
-            pre_this = format!("{} ", pre_this);
-        }
-        res = format!("{}{}", pre_this, res);
 
         result.push(res);
-
-        for _ in 0..to_pop {
-            pre.pop();
-        }
     }
     Ok(result.join("\n"))
 }

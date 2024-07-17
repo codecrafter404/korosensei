@@ -1,36 +1,42 @@
 use itertools::Itertools;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CharStream {
-    available_chars: Vec<char>,
-    poped_chars: Vec<char>,
+pub struct CharStream<T>
+where
+    T: Clone,
+{
+    available_chars: Vec<T>,
+    poped_chars: Vec<T>,
 }
-impl CharStream {
-    pub fn prepend(&mut self, chars: Vec<char>) {
+impl<T> CharStream<T>
+where
+    T: Clone,
+{
+    pub fn prepend(&mut self, chars: Vec<T>) {
         let mut chars = chars;
         chars.reverse();
         self.available_chars.extend_from_slice(&chars);
     }
-    pub fn take(&mut self, n: usize) -> Vec<char> {
+    pub fn take(&mut self, n: usize) -> Vec<T> {
         let mut res = Vec::new();
         for _ in 0..n {
             if let Some(x) = self.available_chars.pop() {
-                self.poped_chars.push(x);
+                self.poped_chars.push(x.clone());
                 res.push(x);
             }
         }
         res
     }
-    pub fn get_history(&self) -> Vec<char> {
+    pub fn get_history(&self) -> Vec<T> {
         self.poped_chars.clone()
     }
-    pub fn take_while<F>(&mut self, test_function: F) -> Vec<char>
+    pub fn take_while<F>(&mut self, test_function: F) -> Vec<T>
     where
-        F: Fn(char) -> bool,
+        F: Fn(T) -> bool,
     {
         self.take(self.test_while(test_function))
     }
-    pub fn preview(&self, n: usize) -> Vec<char> {
+    pub fn preview(&self, n: usize) -> Vec<T> {
         let n = n.min(self.available_chars.len());
         let mut res = Vec::new();
         for i in 0..n {
@@ -43,31 +49,31 @@ impl CharStream {
     }
     pub fn test_n<F>(&self, n: usize, test_function: F) -> Vec<bool>
     where
-        F: Fn(char) -> bool,
+        F: Fn(T) -> bool,
     {
         let to_test = self.preview(n);
         to_test.into_iter().map(|x| test_function(x)).collect_vec()
     }
     pub fn test<F>(&self, test_function: F) -> Option<bool>
     where
-        F: Fn(char) -> bool,
+        F: Fn(T) -> bool,
     {
         self.test_n(1, test_function).into_iter().next()
     }
     pub fn test_while<F>(&self, test_function: F) -> usize
     where
-        F: Fn(char) -> bool,
+        F: Fn(T) -> bool,
     {
         let mut current: usize = 0;
         for x in self.available_chars.iter().rev() {
-            if !test_function(*x) {
+            if !test_function(x.clone()) {
                 break;
             }
             current += 1;
         }
         current
     }
-    pub fn new(chars: &Vec<char>) -> Self {
+    pub fn new(chars: &Vec<T>) -> Self {
         let mut chars = chars.clone();
         chars.reverse();
         CharStream {
@@ -75,10 +81,10 @@ impl CharStream {
             poped_chars: vec![],
         }
     }
-    pub fn prev_collect(&self) -> Vec<char> {
+    pub fn prev_collect(&self) -> Vec<T> {
         self.preview(self.available_chars.len())
     }
-    pub fn collect(&mut self) -> Vec<char> {
+    pub fn collect(&mut self) -> Vec<T> {
         self.take(self.available_chars.len())
     }
     pub fn is_empty(&self) -> bool {
