@@ -4,6 +4,9 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{eyre, ContextCompat, OptionExt};
+use nodes::block::BlockNode;
+use nodes::link::LinkNode;
+use nodes::paragraph::ParagraphNode;
 use parse_markdown::MarkdownNode;
 
 use crate::utils::char_stream::ItemStream;
@@ -87,7 +90,6 @@ impl CorrelatingFile {
             let next = stream.take_one();
             let mut need_header = false;
             let mut block_end = None;
-            let mut need_block = false;
             match next {
                 Some(x) => {
                     result_buf.push(x.clone());
@@ -182,7 +184,7 @@ impl CorrelatingFile {
                 }
             }
             let mut line_offset = 0;
-            let last_item = result_buf.last().expect("Infallible");
+            let last_item = result_buf.last().expect("Infallible").clone();
             let last_block_level = result_buf
                 .iter()
                 .rev()
@@ -193,120 +195,201 @@ impl CorrelatingFile {
                     _ => 0,
                 })
                 .unwrap_or(0);
-            if need_header {}
+            if need_header {
+                // if !last_item.get_paragraph().is_some_and(|x| x.content == "") {
+                //     result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                //         last_item.get_line() + 1,
+                //         "".into(),
+                //         last_item.get_stripped(),
+                //     )));
+                // }
+                result_buf.push(MarkdownNode::BlockStart(BlockNode::new(
+                    last_item.get_line() + 1,
+                    last_block_level,
+                    last_item.get_stripped(),
+                )));
+                result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                    last_item.get_line() + 1,
+                    " _Links".into(),
+                    last_item.get_stripped(),
+                )));
+
+                line_offset += 1;
+
+                result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                    last_item.get_line() + 2,
+                    " ".into(),
+                    Some(format!(
+                        "{}> ",
+                        last_item.get_stripped().unwrap_or_default()
+                    )),
+                )));
+                line_offset += 1;
+            }
+            let last_item = result_buf.last().expect("Infallible").clone();
+
+            result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
+                last_item.get_line() + 1,
+                transcript_time.format("%d.%m.%Y %H:%M").to_string(),
+                transcript_path
+                    .to_str()
+                    .ok_or_eyre("expected transcription path to be parsable")?
+                    .to_string(),
+                last_item.get_stripped(),
+            )));
+            line_offset += 1;
+
+            if need_header {
+                let last_block_level = result_buf
+                    .iter()
+                    .rev()
+                    .find(|x| x.get_block_start().is_some() || x.get_block_end().is_some())
+                    .map(|x| match x {
+                        MarkdownNode::BlockStart(x) => x.level,
+                        MarkdownNode::BlockEnd(x) => x.level - 1,
+                        _ => 0,
+                    })
+                    .unwrap_or(0);
+                result_buf.push(MarkdownNode::BlockEnd(BlockNode::new(
+                    last_item.get_line() + 2,
+                    last_block_level,
+                    last_item.get_stripped(),
+                )));
+                line_offset += 1;
+            } else if let Some(x) = block_end {
+                let mut x = MarkdownNode::BlockEnd(x);
+                x.increment_line_by(line_offset);
+            } else {
+                return Err(eyre!("Infallible: this should never happen :("));
+            }
+
+            // Increments all the following nodes
+            stream = ItemStream::new(
+                &stream
+                    .collect()
+                    .into_iter()
+                    .map(|x| {
+                        let mut x = x;
+                        x.increment_line_by(line_offset);
+                        x
+                    })
+                    .collect_vec(),
+            );
         }
 
-        unimplemented!()
+        let res = parse_markdown::construct_markdown(result_buf)?;
+
+        Ok(res)
     }
 }
 
-// #[test]
-// fn test_corelating_file_linkage_full() {
-//     let file = CorrelatingFile {
-//         path: PathBuf::new(),
-//         headlines: vec![0, 4, 16, 20, 24, 27, 30],
-//     };
-//
-//     let input_content = "\
-// # Hello world
-// <!-- test comment -->
-// > Normal callout
-// content
-// ### Append Test
-// >
-// >
-// >
-// > _Links
-// > [Example]()
-// > []()
-//
-// > callout
-// > _Links
-// > those are great
-// content
-// ##### Append Test #2
-// > _Links
-//
-//
-// ##### Append Test #3
-// > _Links
-// > []()
-// > broken
-// ## Hello world
-//         content
-// > content?
-// > # This is also a heading
-// > > test
-// > content
-// > ## Subheading
-// > > _Links
-// > >
-// > > [Existing_link](https://asdf.com)";
-//     let expected = "\
-// # Hello world
-// <!-- test comment -->
-// > _Links
-// >
-// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-//
-// > Normal callout
-// content
-// ### Append Test
-// >
-// >
-// >
-// > _Links
-// > [Example]()
-// > []()
-// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-//
-// > callout
-// > _Links
-// > those are great
-//
-// content
-// ##### Append Test #2
-// > _Links
-// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-//
-//
-// ##### Append Test #3
-// > _Links
-// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-//
-// > _Links
-// > []()
-// > broken
-// ## Hello world
-// > _Links
-// >
-// > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-//
-//         content
-// > content?
-// > # This is also a heading
-// > > _Links
-// > >
-// > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-// >
-// > > test
-// > content
-// > ## Subheading
-// > > _Links
-// > >
-// > > [Existing_link](https://asdf.com)
-// > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-// > ";
-//     let actual_result = file
-//         .link_to_transcript(
-//             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
-//             input_content,
-//             &DateTime::from_timestamp(1720958400, 0).unwrap(),
-//         )
-//         .unwrap();
-//     println!("{:#?}", actual_result);
-//     assert_eq!(actual_result, expected);
-// }
+#[test]
+fn test_corelating_file_linkage_full() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0, 4, 16, 20, 24, 27, 30],
+    };
+
+    let input_content = "\
+# Hello world
+<!-- test comment -->
+> Normal callout
+content
+### Append Test
+>
+>
+>
+> _Links
+> [Example]()
+> []()
+
+> callout
+> _Links
+> those are great
+content
+##### Append Test #2
+> _Links
+
+
+##### Append Test #3
+> _Links
+> []()
+> broken
+## Hello world
+        content
+> content?
+> # This is also a heading
+> > test
+> content
+> ## Subheading
+> > _Links
+> >
+> > [Existing_link](https://asdf.com)";
+    let expected = "\
+# Hello world
+<!-- test comment -->
+> _Links
+>
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> Normal callout
+content
+### Append Test
+>
+>
+>
+> _Links
+> [Example]()
+> []()
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> callout
+> _Links
+> those are great
+
+content
+##### Append Test #2
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+
+##### Append Test #3
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> _Links
+> []()
+> broken
+## Hello world
+> _Links
+>
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+        content
+> content?
+> # This is also a heading
+> > _Links
+> >
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+>
+> > test
+> content
+> ## Subheading
+> > _Links
+> >
+> > [Existing_link](https://asdf.com)
+> > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+> ";
+    let actual_result = file
+        .link_to_transcript(
+            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
+        )
+        .unwrap();
+    println!("{:#?}", actual_result);
+    assert_eq!(actual_result, expected);
+}
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
 /// Also extracts the headlines, containing the line changes

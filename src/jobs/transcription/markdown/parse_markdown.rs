@@ -48,7 +48,7 @@ impl MarkdownNode {
             MarkdownNode::HtmlNode(x) => x.stripped = stripped,
         }
     }
-    fn get_stripped(&self) -> Option<String> {
+    pub fn get_stripped(&self) -> Option<String> {
         match self {
             MarkdownNode::Headline(x) => x.stripped.clone(),
             MarkdownNode::ParagraphNode(x) => x.stripped.clone(),
