@@ -3,14 +3,14 @@ use itertools::Itertools;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemStream<T>
 where
-    T: Clone,
+    T: Clone + PartialEq + Eq,
 {
     available_items: Vec<T>,
     history: Vec<T>,
 }
 impl<T> ItemStream<T>
 where
-    T: Clone,
+    T: Clone + PartialEq + Eq,
 {
     pub fn prepend(&mut self, chars: Vec<T>) {
         let mut chars = chars;
@@ -38,6 +38,19 @@ where
         F: Fn(T) -> bool,
     {
         self.take(self.test_while(test_function))
+    }
+    pub fn test_window(&self, window: Vec<T>) -> Option<bool> {
+        let mut dummy = self.clone();
+        let test_window = dummy.take(3);
+        if test_window.len() != window.len() {
+            return None;
+        }
+        for (idx, w) in window.into_iter().enumerate() {
+            if w != test_window[idx] {
+                return Some(false);
+            }
+        }
+        return Some(true);
     }
     pub fn preview(&self, n: usize) -> Vec<T> {
         let n = n.min(self.available_items.len());
@@ -113,6 +126,12 @@ fn test_char_stream() {
     stream.prepend(vec!['a']);
     assert_eq!(stream.test_while(|x| x != 'd'), 3);
     assert_eq!(stream.prev_collect(), vec!['a', 'b', 'c', 'd', 'e', 'f']);
+    assert_eq!(stream.test_window(vec!['a', 'b', 'c']), Some(true));
+    assert_eq!(stream.test_window(vec!['a', 'b', 'x']), Some(false));
+    assert_eq!(
+        stream.test_window(vec!['a', 'b', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']),
+        None
+    );
 
     assert_eq!(stream.take_while(|x| x != 'd'), vec!['a', 'b', 'c']);
     assert_eq!(stream.test(|x| x == 'd'), Some(true));
