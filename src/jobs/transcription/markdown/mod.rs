@@ -243,11 +243,33 @@ impl CorrelatingFile {
                 stream.preview(3)
             );
             if need_header {
+                // add spacing if needed
+
+                let need_spacing_p = last_item
+                    .get_paragraph()
+                    .is_some_and(|x| !x.get_whitespace().is_empty());
+                println!("-> need spacing?: {}", need_spacing_p);
+                if need_spacing_p {
+                    // we need to add an paragraph header
+                    result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                        last_item.get_line() + 1,
+                        last_item
+                            .get_paragraph()
+                            .ok_or_eyre("Infallible")?
+                            .get_whitespace(),
+                        stripped.clone(),
+                    )));
+                }
+
                 println!("-> [{}] pushing header", result_buf.len());
                 result_buf.push(MarkdownNode::BlockStart(BlockNode::new(
                     last_item.get_line() + 1,
                     last_block_level,
-                    stripped.clone(),
+                    if !need_spacing_p {
+                        stripped.clone()
+                    } else {
+                        None
+                    },
                 )));
                 result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                     last_item.get_line() + 1,
