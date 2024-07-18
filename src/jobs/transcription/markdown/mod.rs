@@ -200,7 +200,19 @@ impl CorrelatingFile {
                 need_header,
                 block_end
             );
-            let last_item = result_buf.last().expect("Infallible").clone();
+            let last_item = result_buf
+                .clone()
+                .into_iter()
+                .chunk_by(|x| x.get_line())
+                .into_iter()
+                .map(|(a, b)| (a, b.collect_vec()))
+                .collect_vec()
+                .last()
+                .ok_or_eyre("Expected to have at least one item")?
+                .1
+                .first()
+                .expect("Infallible")
+                .clone();
             let last_block_level = result_buf
                 .iter()
                 .rev()
@@ -211,6 +223,7 @@ impl CorrelatingFile {
                     _ => 0,
                 })
                 .unwrap_or(0);
+            let mut stripped = last_item.get_stripped();
             println!(
                 "-> [{}] last_item: {:?}; last_block_level: {:?}",
                 result_buf.len(),
@@ -219,13 +232,6 @@ impl CorrelatingFile {
             );
             if need_header {
                 println!("-> [{}] pushing header", result_buf.len());
-                // if !last_item.get_paragraph().is_some_and(|x| x.content == "") {
-                //     result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
-                //         last_item.get_line() + 1,
-                //         "".into(),
-                //         last_item.get_stripped(),
-                //     )));
-                // }
                 result_buf.push(MarkdownNode::BlockStart(BlockNode::new(
                     last_item.get_line() + 1,
                     last_block_level,
@@ -249,76 +255,102 @@ impl CorrelatingFile {
                 )));
                 line_offset += 1;
             } else {
-                // existing header
+                println!("-> dont need header");
+                let line = result_buf
+                    .clone()
+                    .into_iter()
+                    .filter(|x| {
+                        !x.get_paragraph()
+                            .is_some_and(|x| x.content.trim().is_empty())
+                    })
+                    .chunk_by(|x| x.get_line())
+                    .into_iter()
+                    .map(|(a, b)| (a, b.collect_vec()))
+                    .collect_vec()
+                    .last()
+                    .ok_or_eyre("Expect to have at least one last item in result_buf")?
+                    .1
+                    .clone();
 
-                let mut res_stream =
-                    ItemStream::new(&result_buf.clone().into_iter().rev().collect_vec());
-
-                // this could be
-                // - links
-                // - whitespace / newline
-                // - _Links
-                // - whitespace / newline
-                let block_items = res_stream.take_while(|x| x.get_block_start().is_none());
-                assert!(!block_items.is_empty());
-                res_stream = ItemStream::new(&block_items);
-
-                let mut last_empty = false;
-                loop {
-                    let a = res_stream.take_one();
-
-                    match a {
-                        Some(a) => match a {
-                            MarkdownNode::ParagraphNode(x) => {
-                                if x.content == " " {
-                                    if last_empty {
-                                        break;
-                                    }
-                                    last_empty = true;
-                                } else {
-                                    break;
-                                }
+                let whitespace = match line.last().expect("Infallible") {
+                    MarkdownNode::ParagraphNode(x) => {
+                        println!("-> we got empty line / _Links");
+                        if x.content.trim() == "_Links" {
+                            println!("-> _Links");
+                            // get whitespace from there
+                            if let Some(y) = stripped {
+                                stripped = Some(format!("{}>{}", y, x.get_whitespace()));
+                            } else if !x.get_whitespace().is_empty() {
+                                stripped = Some(format!(">{}", x.get_whitespace()));
                             }
-                            MarkdownNode::LinkNode(_) => {
-                                last_empty = false;
-                                continue;
-                            }
-                            _ => {
-                                break;
-                            }
-                        },
-                        None => {
-                            break;
+                            x.get_whitespace()
+                        } else if x.content.trim().is_empty() {
+                            println!("-> newline");
+                            // is empty line
+                            x.content.clone()
+                        } else {
+                            return Err(eyre!(format!(
+                                "content should be whitespace or _Links, got: {:?}",
+                                x.content
+                            )));
                         }
                     }
+                    MarkdownNode::LinkNode(_) => {
+                        println!("-> got link node; searching for paragraph to find whitespace");
+                        match line.iter().find(|x| {
+                            x.get_paragraph()
+                                .is_some_and(|x| x.content.trim().is_empty())
+                        }) {
+                            Some(x) => {
+                                // take whitespace from here
+                                let p = x.get_paragraph().expect("Infallible");
+                                p.get_whitespace()
+                            }
+                            None => String::new(),
+                        }
+                    }
+                    x => {
+                        return Err(eyre!(format!(
+                            "Expected to get paragraph / link node, got: {:?}",
+                            x
+                        )))
+                    }
+                };
+
+                println!(
+                    "-> got whitespace {:?}; stripped: {:?}; adding space paragraph",
+                    whitespace, stripped
+                );
+                //NOTE: This is technically not spec complient, if whitespace is empty, but its ok
+                if !whitespace.is_empty() {
+                    result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                        last_item.get_line() + 1,
+                        whitespace,
+                        stripped.clone(),
+                    )));
+                    line_offset += 1;
+                } else {
+                    println!("-> not added paragraph; whitespace is empty");
                 }
-                //TODO: find whitespace
-                //TODO: find stripped / create yourself (if firstline =  '> _Links')
-                //TODO: add whitespace p to result_buf
-
-                //DONE: append link
-                //DONE: close block
-
-                // let whitespace = result_buf
-                //     .iter()
-                //     .rev()
-                //     .find(|x| x.get_paragraph().is_some())
-                //     .map(|x| x.get_paragraph().unwrap().get_whitespace())
-                //     .unwrap_or(" ".to_owned());
-                //
-                // result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
-                //     last_item.get_line() + 1,
-                //     last_item.get_block_end,
-                //     Some(format!(
-                //         "{}> ",
-                //         last_item.get_stripped().unwrap_or_default()
-                //     )),
-                // )));
-                // line_offset += 1;
             }
-            let last_item = result_buf.last().expect("Infallible").clone();
+            let last_line_items = result_buf
+                .clone()
+                .into_iter()
+                .chunk_by(|x| x.get_line())
+                .into_iter()
+                .map(|(a, b)| (a, b.collect_vec()))
+                .collect_vec()
+                .last()
+                .ok_or_eyre("Expected to have at least one item")?
+                .1
+                .clone();
+            let last_item = last_line_items.first().expect("Infallible").clone();
 
-            println!("-> [{}] pushing link", result_buf.len());
+            println!(
+                "-> [{}] pushing link; last_line_items: {:?}",
+                result_buf.len(),
+                last_line_items
+            );
             result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
                 last_item.get_line(),
                 transcript_time.format("%d.%m.%Y %H:%M").to_string(),
@@ -326,7 +358,7 @@ impl CorrelatingFile {
                     .to_str()
                     .ok_or_eyre("expected transcription path to be parsable")?
                     .to_string(),
-                last_item.get_stripped(),
+                stripped,
             )));
             line_offset += 1;
 
@@ -343,11 +375,10 @@ impl CorrelatingFile {
                     })
                     .unwrap_or(0);
                 result_buf.push(MarkdownNode::BlockEnd(BlockNode::new(
-                    last_item.get_line() + 2,
+                    last_item.get_line(),
                     last_block_level,
-                    last_item.get_stripped(),
+                    None,
                 )));
-                line_offset += 1;
             } else if let Some(x) = block_end {
                 println!("-> [{}] pushing endblock (existing)", result_buf.len());
                 let mut x = MarkdownNode::BlockEnd(x);
@@ -362,6 +393,7 @@ impl CorrelatingFile {
                 line_offset
             );
             println!("-> End res buf: {:#?}", result_buf);
+            println!("-> prev: {:?}", stream.preview(1));
             // Increments all the following nodes
             stream = ItemStream::new(
                 &stream
