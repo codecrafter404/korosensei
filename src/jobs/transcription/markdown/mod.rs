@@ -49,6 +49,7 @@ impl CorrelatingFile {
         );
 
         let parsed = parse_markdown::parse_markdown(content)?;
+        println!("got parsed: {:#?}", parsed);
         let mut stream = ItemStream::new(&parsed);
 
         let mut result_buf = Vec::new();
@@ -62,11 +63,13 @@ impl CorrelatingFile {
         headlines.sort();
         headlines.dedup();
 
-        let mut line_offset = 0;
+        let mut general_offset = 0;
         for headline in headlines {
+            let mut line_offset = 0;
+            println!("-> searchline_offset: {}", general_offset);
             result_buf.extend_from_slice(&stream.take_while(|x| {
                 !x.get_headline()
-                    .is_some_and(|x| (x.line + line_offset) == headline)
+                    .is_some_and(|x| x.line == (headline + general_offset))
             }));
             println!("H1: result_buf {:#?}", result_buf);
             let h = stream
@@ -100,12 +103,12 @@ impl CorrelatingFile {
                     if let Some(block_start) = x.get_block_start() {
                         println!("-> [{}] Existing block", result_buf.len());
                         // existing block
-                        let mut block_nodes = stream.take_while(|x| {
+                        println!("-> prev: {:?}", stream.preview(1));
+                        let mut block_nodes = vec![x.clone()];
+                        block_nodes.extend_from_slice(&stream.take_while(|x| {
                             x.get_paragraph()
                                 .is_some_and(|x| x.content == "" || x.content == " ")
-                        });
-
-                        block_nodes.push(x.clone());
+                        }));
                         if stream
                             .test(|x| {
                                 x.get_paragraph()
@@ -115,6 +118,7 @@ impl CorrelatingFile {
                         {
                             block_nodes.extend_from_slice(&stream.take(1));
 
+                            println!("-> prev: {:?}", stream.preview(1));
                             println!("-> [{}] all empty lines before links", result_buf.len());
                             // all empty lines before links
                             block_nodes.extend_from_slice(&stream.take_while(|x| {
@@ -122,6 +126,7 @@ impl CorrelatingFile {
                                     .is_some_and(|x| x.content == "" || x.content == "")
                             }));
 
+                            println!("-> prev: {:?}", stream.preview(1));
                             println!("-> [{}] existing links", result_buf.len());
                             // existing links
                             loop {
@@ -137,6 +142,7 @@ impl CorrelatingFile {
                                     let c = stream.take(1)[0].get_paragraph().expect("Infallible");
                                     line = Some(c.line.clone());
                                     block_nodes.push(MarkdownNode::ParagraphNode(c));
+                                    println!("-> prev: {:?}", stream.preview(1));
                                 }
                                 if stream.test(|x| x.get_link().is_some()).is_some_and(|x| x) {
                                     let c = stream
@@ -159,6 +165,7 @@ impl CorrelatingFile {
                                     }
                                 }
                             }
+                            println!("-> prev: {:?}", stream.preview(1));
 
                             println!("-> [{}] expected end of block", result_buf.len());
                             // expected end of block
@@ -178,15 +185,21 @@ impl CorrelatingFile {
                                 );
                                 result_buf.extend_from_slice(&block_nodes);
 
+                                println!("-> prev: {:?}", stream.preview(1)); // DEBUG: block end should be on line
                                 need_header = false;
                             } else {
                                 println!("-> no eob");
                                 stream = bak;
                             }
                         } else {
+                            println!("-> prev: {:?}", stream.preview(1));
                             println!("-> no header");
                             stream = bak;
+                            println!("-> prev: {:?}", stream.preview(1));
                         }
+                    } else {
+                        println!("-> next is not block start, its {:?}", x);
+                        stream = bak;
                     }
                 }
                 None => {
@@ -225,10 +238,11 @@ impl CorrelatingFile {
                 .unwrap_or(0);
             let mut stripped = last_item.get_stripped();
             println!(
-                "-> [{}] last_item: {:?}; last_block_level: {:?}",
+                "-> [{}] last_item: {:?}; last_block_level: {:?}; prev: {:?}",
                 result_buf.len(),
                 last_item,
-                last_block_level
+                last_block_level,
+                stream.preview(3)
             );
             if need_header {
                 println!("-> [{}] pushing header", result_buf.len());
@@ -259,10 +273,6 @@ impl CorrelatingFile {
                 let line = result_buf
                     .clone()
                     .into_iter()
-                    .filter(|x| {
-                        !x.get_paragraph()
-                            .is_some_and(|x| x.content.trim().is_empty())
-                    })
                     .chunk_by(|x| x.get_line())
                     .into_iter()
                     .map(|(a, b)| (a, b.collect_vec()))
@@ -302,11 +312,15 @@ impl CorrelatingFile {
                                 .is_some_and(|x| x.content.trim().is_empty())
                         }) {
                             Some(x) => {
+                                println!("-> Found p {:?}", x);
                                 // take whitespace from here
                                 let p = x.get_paragraph().expect("Infallible");
                                 p.get_whitespace()
                             }
-                            None => String::new(),
+                            None => {
+                                println!("-> found none: line: {:?}", line);
+                                String::new()
+                            }
                         }
                     }
                     x => {
@@ -358,9 +372,13 @@ impl CorrelatingFile {
                     .to_str()
                     .ok_or_eyre("expected transcription path to be parsable")?
                     .to_string(),
-                stripped,
+                if last_line_items.is_empty() {
+                    stripped
+                } else {
+                    None
+                },
             )));
-            line_offset += 1;
+            // line_offset += 1;
 
             if need_header {
                 println!("-> [{}] pushing end block", result_buf.len());
@@ -383,6 +401,7 @@ impl CorrelatingFile {
                 println!("-> [{}] pushing endblock (existing)", result_buf.len());
                 let mut x = MarkdownNode::BlockEnd(x);
                 x.increment_line_by(line_offset);
+                result_buf.push(x);
             } else {
                 return Err(eyre!("Infallible: this should never happen :("));
             }
@@ -407,6 +426,7 @@ impl CorrelatingFile {
                     .collect_vec(),
             );
             println!("-> ---------------- End: [{}]", result_buf.len());
+            general_offset += line_offset;
         }
 
         let res = parse_markdown::construct_markdown(result_buf)?;
@@ -448,7 +468,7 @@ content
 > []()
 > broken
 ## Hello world
-        content
+        contenea
 > content?
 > # This is also a heading
 > > test
@@ -520,7 +540,11 @@ content
         )
         .unwrap();
     println!("{:#?}", actual_result);
-    assert_eq!(actual_result, expected);
+    let actual_result = actual_result.split("\n").collect_vec();
+    let expected = expected.split("\n").collect_vec();
+    for (idx, e) in expected.into_iter().enumerate() {
+        assert_eq!(actual_result[idx], e, "[{}]", idx);
+    }
 }
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
