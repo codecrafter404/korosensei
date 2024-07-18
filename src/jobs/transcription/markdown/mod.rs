@@ -62,10 +62,13 @@ impl CorrelatingFile {
         headlines.sort();
         headlines.dedup();
 
+        let mut line_offset = 0;
         for headline in headlines {
-            result_buf.extend_from_slice(
-                &stream.take_while(|x| x.get_headline().is_some_and(|x| x.line == headline)),
-            );
+            result_buf.extend_from_slice(&stream.take_while(|x| {
+                !x.get_headline()
+                    .is_some_and(|x| (x.line + line_offset) == headline)
+            }));
+            println!("H1: result_buf {:#?}", result_buf);
             let h = stream
                 .take_one()
                 .wrap_err(eyre!(format!(
@@ -77,31 +80,32 @@ impl CorrelatingFile {
                     "expected to get headline on line {}",
                     headline
                 )))?;
-
+            println!("-> H1: {:?}", h);
             result_buf.push(MarkdownNode::Headline(h));
             let htmls = stream.take_while(|x| {
                 x.get_html().is_some() || x.get_paragraph().is_some_and(|x| x.content == "")
             });
+            println!("-> HTMLs: {:?}", htmls);
             result_buf.extend_from_slice(&htmls);
 
             // check if is block
             // true: skip past all empty paragraphs -> check if paragraph =
 
+            let bak = stream.clone();
             let next = stream.take_one();
-            let mut need_header = false;
+            let mut need_header = true;
             let mut block_end = None;
             match next {
                 Some(x) => {
-                    result_buf.push(x.clone());
                     if let Some(block_start) = x.get_block_start() {
-                        let bak = stream.clone();
-
+                        println!("-> [{}] Existing block", result_buf.len());
                         // existing block
                         let mut block_nodes = stream.take_while(|x| {
                             x.get_paragraph()
                                 .is_some_and(|x| x.content == "" || x.content == " ")
                         });
 
+                        block_nodes.push(x.clone());
                         if stream
                             .test(|x| {
                                 x.get_paragraph()
@@ -111,12 +115,14 @@ impl CorrelatingFile {
                         {
                             block_nodes.extend_from_slice(&stream.take(1));
 
+                            println!("-> [{}] all empty lines before links", result_buf.len());
                             // all empty lines before links
                             block_nodes.extend_from_slice(&stream.take_while(|x| {
                                 x.get_paragraph()
                                     .is_some_and(|x| x.content == "" || x.content == "")
                             }));
 
+                            println!("-> [{}] existing links", result_buf.len());
                             // existing links
                             loop {
                                 let block_nodes_bak = block_nodes.clone();
@@ -154,6 +160,7 @@ impl CorrelatingFile {
                                 }
                             }
 
+                            println!("-> [{}] expected end of block", result_buf.len());
                             // expected end of block
                             if stream
                                 .test(|x| {
@@ -170,20 +177,29 @@ impl CorrelatingFile {
                                         .expect("Infallible"),
                                 );
                                 result_buf.extend_from_slice(&block_nodes);
+
+                                need_header = false;
                             } else {
+                                println!("-> no eob");
                                 stream = bak;
                             }
                         } else {
+                            println!("-> no header");
                             stream = bak;
                         }
                     }
                 }
                 None => {
-                    // add header
-                    need_header = true;
+                    println!("-> no existing block");
+                    stream = bak;
                 }
             }
-            let mut line_offset = 0;
+            println!(
+                "-> [{}] need_header: {}, last_block: {:?}",
+                result_buf.len(),
+                need_header,
+                block_end
+            );
             let last_item = result_buf.last().expect("Infallible").clone();
             let last_block_level = result_buf
                 .iter()
@@ -195,7 +211,14 @@ impl CorrelatingFile {
                     _ => 0,
                 })
                 .unwrap_or(0);
+            println!(
+                "-> [{}] last_item: {:?}; last_block_level: {:?}",
+                result_buf.len(),
+                last_item,
+                last_block_level
+            );
             if need_header {
+                println!("-> [{}] pushing header", result_buf.len());
                 // if !last_item.get_paragraph().is_some_and(|x| x.content == "") {
                 //     result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                 //         last_item.get_line() + 1,
@@ -225,11 +248,79 @@ impl CorrelatingFile {
                     )),
                 )));
                 line_offset += 1;
+            } else {
+                // existing header
+
+                let mut res_stream =
+                    ItemStream::new(&result_buf.clone().into_iter().rev().collect_vec());
+
+                // this could be
+                // - links
+                // - whitespace / newline
+                // - _Links
+                // - whitespace / newline
+                let block_items = res_stream.take_while(|x| x.get_block_start().is_none());
+                assert!(!block_items.is_empty());
+                res_stream = ItemStream::new(&block_items);
+
+                let mut last_empty = false;
+                loop {
+                    let a = res_stream.take_one();
+
+                    match a {
+                        Some(a) => match a {
+                            MarkdownNode::ParagraphNode(x) => {
+                                if x.content == " " {
+                                    if last_empty {
+                                        break;
+                                    }
+                                    last_empty = true;
+                                } else {
+                                    break;
+                                }
+                            }
+                            MarkdownNode::LinkNode(_) => {
+                                last_empty = false;
+                                continue;
+                            }
+                            _ => {
+                                break;
+                            }
+                        },
+                        None => {
+                            break;
+                        }
+                    }
+                }
+                //TODO: find whitespace
+                //TODO: find stripped / create yourself (if firstline =  '> _Links')
+                //TODO: add whitespace p to result_buf
+
+                //DONE: append link
+                //DONE: close block
+
+                // let whitespace = result_buf
+                //     .iter()
+                //     .rev()
+                //     .find(|x| x.get_paragraph().is_some())
+                //     .map(|x| x.get_paragraph().unwrap().get_whitespace())
+                //     .unwrap_or(" ".to_owned());
+                //
+                // result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                //     last_item.get_line() + 1,
+                //     last_item.get_block_end,
+                //     Some(format!(
+                //         "{}> ",
+                //         last_item.get_stripped().unwrap_or_default()
+                //     )),
+                // )));
+                // line_offset += 1;
             }
             let last_item = result_buf.last().expect("Infallible").clone();
 
+            println!("-> [{}] pushing link", result_buf.len());
             result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
-                last_item.get_line() + 1,
+                last_item.get_line(),
                 transcript_time.format("%d.%m.%Y %H:%M").to_string(),
                 transcript_path
                     .to_str()
@@ -240,6 +331,7 @@ impl CorrelatingFile {
             line_offset += 1;
 
             if need_header {
+                println!("-> [{}] pushing end block", result_buf.len());
                 let last_block_level = result_buf
                     .iter()
                     .rev()
@@ -257,12 +349,19 @@ impl CorrelatingFile {
                 )));
                 line_offset += 1;
             } else if let Some(x) = block_end {
+                println!("-> [{}] pushing endblock (existing)", result_buf.len());
                 let mut x = MarkdownNode::BlockEnd(x);
                 x.increment_line_by(line_offset);
             } else {
                 return Err(eyre!("Infallible: this should never happen :("));
             }
 
+            println!(
+                "-> [{}] incrementing lines by offset {}",
+                result_buf.len(),
+                line_offset
+            );
+            println!("-> End res buf: {:#?}", result_buf);
             // Increments all the following nodes
             stream = ItemStream::new(
                 &stream
@@ -275,6 +374,7 @@ impl CorrelatingFile {
                     })
                     .collect_vec(),
             );
+            println!("-> ---------------- End: [{}]", result_buf.len());
         }
 
         let res = parse_markdown::construct_markdown(result_buf)?;
