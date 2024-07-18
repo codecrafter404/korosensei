@@ -71,7 +71,6 @@ impl CorrelatingFile {
                 !x.get_headline()
                     .is_some_and(|x| x.line == (headline + general_offset))
             }));
-            println!("H1: result_buf {:#?}", result_buf);
             let h = stream
                 .take_one()
                 .wrap_err(eyre!(format!(
@@ -90,7 +89,6 @@ impl CorrelatingFile {
             });
             println!("-> HTMLs: {:?}", htmls);
             result_buf.extend_from_slice(&htmls);
-
             // check if is block
             // true: skip past all empty paragraphs -> check if paragraph =
 
@@ -249,12 +247,12 @@ impl CorrelatingFile {
                 result_buf.push(MarkdownNode::BlockStart(BlockNode::new(
                     last_item.get_line() + 1,
                     last_block_level,
-                    last_item.get_stripped(),
+                    stripped.clone(),
                 )));
                 result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                     last_item.get_line() + 1,
                     " _Links".into(),
-                    last_item.get_stripped(),
+                    None,
                 )));
 
                 line_offset += 1;
@@ -262,10 +260,7 @@ impl CorrelatingFile {
                 result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                     last_item.get_line() + 2,
                     " ".into(),
-                    Some(format!(
-                        "{}> ",
-                        last_item.get_stripped().unwrap_or_default()
-                    )),
+                    Some(format!("{}>", last_item.get_stripped().unwrap_or_default())),
                 )));
                 line_offset += 1;
             } else {
@@ -289,9 +284,9 @@ impl CorrelatingFile {
                             println!("-> _Links");
                             // get whitespace from there
                             if let Some(y) = stripped {
-                                stripped = Some(format!("{}>{}", y, x.get_whitespace()));
+                                stripped = Some(format!("{}>", y));
                             } else if !x.get_whitespace().is_empty() {
-                                stripped = Some(format!(">{}", x.get_whitespace()));
+                                stripped = Some(format!(">"));
                             }
                             x.get_whitespace()
                         } else if x.content.trim().is_empty() {
@@ -406,12 +401,57 @@ impl CorrelatingFile {
                 return Err(eyre!("Infallible: this should never happen :("));
             }
 
+            let last_line_before_block = result_buf
+                .clone()
+                .into_iter()
+                .rev()
+                .skip_while(|x| !x.get_block_start().is_some())
+                .skip(1)
+                .collect_vec()
+                .into_iter()
+                .rev()
+                .chunk_by(|x| x.get_line())
+                .into_iter()
+                .map(|(a, b)| (a, b.collect_vec()))
+                .collect_vec()
+                .last()
+                .ok_or_eyre("Expected to have at least one item")?
+                .1
+                .clone();
+
+            // adding an empty line after
+            if stream
+                .test(|x| {
+                    x.get_paragraph()
+                        .is_some_and(|x| x.content.trim().is_empty())
+                })
+                .is_some_and(|x| !x)
+            {
+                println!("-> adding empty paragraph for seperation");
+                result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                    last_item.get_line() + 1,
+                    "".into(),
+                    last_line_before_block
+                        .first()
+                        .ok_or_eyre("Infallible")?
+                        .get_stripped(),
+                )));
+                line_offset += 1;
+            } else {
+                println!(
+                    "-> already got empty line: {:?}; last_line_before_block: {:?}, last_line: {:?}, elem_at_skip {:?}",
+                    stream.preview(1),
+                    last_line_before_block,
+                    last_line_items,
+                    result_buf.iter().rev().skip(line_offset).next()
+                );
+            }
+
             println!(
                 "-> [{}] incrementing lines by offset {}",
                 result_buf.len(),
                 line_offset
             );
-            println!("-> End res buf: {:#?}", result_buf);
             println!("-> prev: {:?}", stream.preview(1));
             // Increments all the following nodes
             stream = ItemStream::new(
@@ -429,6 +469,7 @@ impl CorrelatingFile {
             general_offset += line_offset;
         }
 
+        println!("{:#?}", result_buf);
         let res = parse_markdown::construct_markdown(result_buf)?;
 
         Ok(res)
@@ -468,7 +509,7 @@ content
 > []()
 > broken
 ## Hello world
-        contenea
+        content
 > content?
 > # This is also a heading
 > > test
@@ -481,7 +522,6 @@ content
 # Hello world
 <!-- test comment -->
 > _Links
->
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 > Normal callout
@@ -498,7 +538,6 @@ content
 > callout
 > _Links
 > those are great
-
 content
 ##### Append Test #2
 > _Links
@@ -514,21 +553,18 @@ content
 > broken
 ## Hello world
 > _Links
->
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
         content
 > content?
 > # This is also a heading
 > > _Links
-> >
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 >
 > > test
 > content
 > ## Subheading
 > > _Links
-> >
 > > [Existing_link](https://asdf.com)
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 > ";
