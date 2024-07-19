@@ -72,16 +72,16 @@ pub(crate) async fn transcribe_link(
         .clone()
         .ok_or_eyre(format!("Expected to get paragraphs, got {:?}", res))?
         .paragraphs;
-    let topics = res
-        .clone()
-        .topics
-        .ok_or_eyre(eyre!("Expected to get topics; got {:?}", res))?
-        .segments
-        .clone()
-        .into_iter()
-        .flat_map(|x| x.topics)
-        .sorted_by(|a, b| b.confidence_score.total_cmp(&a.confidence_score))
-        .collect_vec();
+    let topics = match res.clone().topics {
+        Some(x) => x
+            .segments
+            .clone()
+            .into_iter()
+            .flat_map(|x| x.topics)
+            .sorted_by(|a, b| b.confidence_score.total_cmp(&a.confidence_score))
+            .collect_vec(),
+        None => vec![],
+    };
 
     Ok(TranscriptionResult {
         paragraphs,

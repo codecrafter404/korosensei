@@ -44,6 +44,7 @@ impl Config {
 #[derive(Debug, Clone)]
 pub struct TranscriptionConfig {
     pub transcription_script_search_path: PathBuf,
+    pub transcription_target_path: PathBuf,
     pub git_source_branch: String,
     pub git_target_branch: String,
     pub git_source_path: PathBuf,
@@ -65,6 +66,10 @@ impl TranscriptionConfig {
             git_source_path: PathBuf::from_str(
                 &dotenv::var("TRANSCRIPTION_AUDIO_SOURCE_DIR")
                     .wrap_err("Expected TRANSCRIPTION_AUDIO_SOURCE_DIR to be set")?,
+            )?,
+            transcription_target_path: PathBuf::from_str(
+                &dotenv::var("TRANSCRIPTION_TARGET_PATH")
+                    .wrap_err("Expected TRANSCRIPTION_TARGET_PATH to be set")?,
             )?,
             time_window: chrono::Duration::minutes(
                 dotenv::var("TRANSCRIPTION_TIME_WINDOW")

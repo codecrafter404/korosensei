@@ -14,7 +14,6 @@ pub(crate) fn get_transcription_file(
 > _Links
 >
 {}
-> [Source File]({})
 
 ## Summary
 {}
@@ -23,14 +22,14 @@ pub(crate) fn get_transcription_file(
 {}
 ",
         link.last_modified.format("%d.%m.%Y %H:%M"),
-        format_tags(&transcription),
-        format_link(&link, None)?,
+        format_tags(&transcription, &link)?,
         transcription.summary,
         format_paragraphs(&transcription, &link)?
     ))
 }
-fn format_tags(res: &TranscriptionResult) -> String {
-    res.topics
+fn format_tags(res: &TranscriptionResult, link: &Link) -> color_eyre::Result<String> {
+    let mut res = res
+        .topics
         .clone()
         .into_iter()
         .map(|x| {
@@ -40,7 +39,9 @@ fn format_tags(res: &TranscriptionResult) -> String {
                 url_escape::encode_component(&x.topic).to_string()
             )
         })
-        .join("\n")
+        .collect_vec();
+    res.push(format!("> [Source File]({})", format_link(link, None)?));
+    Ok(res.join("\n"))
 }
 fn format_link(link: &Link, offset: Option<f64>) -> color_eyre::Result<String> {
     let mut res = match &link.link_target {
@@ -83,16 +84,9 @@ fn format_paragraphs(res: &TranscriptionResult, link: &Link) -> color_eyre::Resu
     let mut speaker_colors = Vec::new();
     for _ in 0..speakers {
         let color = generate_random_color();
-        log::info!("Color: {:?}", color);
-        let color = format!(
-            "#{:x}{:x}{:x}",
-            (color.0 * 255.).floor() as i8,
-            (color.1 * 255.).floor() as i8,
-            (color.2 * 255.).floor() as i8
-        );
+        let color = format!("#{:x}{:x}{:x}", color.0, color.1, color.2);
         speaker_colors.push(color);
     }
-
     let mut result = String::new();
     for x in &res.paragraphs {
         let speaker = x
@@ -110,36 +104,35 @@ fn format_paragraphs(res: &TranscriptionResult, link: &Link) -> color_eyre::Resu
 }
 
 // from https://en.wikipedia.org/wiki/HSL_and_HSV#HSV_to_RGB
-fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (f64, f64, f64) {
-    assert!(0. <= h && h < 360.);
-    assert!(0. <= s && s <= 1.);
-    assert!(0. <= v && v <= 1.);
-    let c = v * s;
-    let h1 = h / 60.;
-    let x = c * (1. - (h1 % 2. - 1.).abs());
-    let (r1, g1, b1) = if 0. <= h1 && h1 < 1. {
-        (c, x, 0.)
-    } else if 1. <= h1 && h1 < 2. {
-        (x, c, 0.)
-    } else if 2. <= h1 && h1 < 3. {
-        (0., c, x)
-    } else if 3. <= h1 && h1 < 4. {
-        (0., x, c)
-    } else if 4. <= h1 && h1 < 5. {
-        (x, 0., c)
-    } else if 5. <= h1 && h1 < 6. {
-        (c, 0., x)
-    } else {
-        (0., 0., 0.)
+// https://martin.ankerl.com/2009/12/09/how-to-create-random-colors-programmatically/
+fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
+    let h_i = (h * 6.0).floor() as i32;
+    let f = h * 6.0 - h_i as f64;
+
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - f * s);
+    let t = v * (1.0 - (1.0 - f) * s);
+
+    let (r, g, b) = match h_i {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        5 => (v, p, q),
+        _ => panic!("Invalid hue value"),
     };
 
-    let m = v - c;
-    (r1 + m, g1 + m, b1 + m)
+    (
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+    )
 }
 
 // https://martin.ankerl.com/2009/12/09/how-to-create-random-colors-programmatically/
-fn generate_random_color() -> (f64, f64, f64) {
-    let phi = (1. + (5_f64).sqrt()) / 2.; // Golden Ratio
+fn generate_random_color() -> (u8, u8, u8) {
+    let phi = (1. + (5_f64).sqrt()) / 2. - 1.; // Golden Ratio
     let rand = rand::random::<f64>(); // [0, 1)
     let h = (rand + phi) % 1.;
     hsv_to_rgb(h, 0.5, 0.95)

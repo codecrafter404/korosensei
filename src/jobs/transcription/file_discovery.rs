@@ -55,9 +55,9 @@ pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> 
 
     let target_path = conf.git_directory.join(
         transcription_conf
-            .transcription_script_search_path
+            .transcription_target_path
             .strip_prefix("/")
-            .unwrap_or(&transcription_conf.transcription_script_search_path),
+            .unwrap_or(&transcription_conf.transcription_target_path),
     );
     std::fs::create_dir_all(target_path.clone())?;
 
@@ -73,7 +73,7 @@ pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> 
             continue;
         }
         if let Some(filename) = dir_entry.file_name().to_str() {
-            if !filename.ends_with(".transcipt.md") {
+            if !filename.ends_with(".transcript.md") {
                 log::warn!("Skipping non .transcript.md file: {:?}", dir_entry.path());
                 continue;
             }

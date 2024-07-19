@@ -121,9 +121,9 @@ async fn process_file(
     let target_file_name = format!("{}.transcript.md", file_without_link_extension);
     let dir = conf.git_directory.join(
         transcription_config
-            .transcription_script_search_path
+            .transcription_target_path
             .strip_prefix("/")
-            .unwrap_or(&transcription_config.transcription_script_search_path),
+            .unwrap_or(&transcription_config.transcription_target_path),
     );
 
     std::fs::create_dir_all(dir.clone())?;
