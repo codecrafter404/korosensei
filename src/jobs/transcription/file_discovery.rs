@@ -59,6 +59,7 @@ pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> 
             .strip_prefix("/")
             .unwrap_or(&transcription_conf.transcription_script_search_path),
     );
+    std::fs::create_dir_all(target_path.clone())?;
 
     for file in std::fs::read_dir(&target_path)? {
         let dir_entry = match file {

@@ -12,6 +12,7 @@ pub(crate) fn get_transcription_file(
 # Transcript '{}'
 
 > _Links
+>
 {}
 > [Source File]({})
 
@@ -32,16 +33,23 @@ fn format_tags(res: &TranscriptionResult) -> String {
     res.topics
         .clone()
         .into_iter()
-        .map(|x| format!("> [{}](topic://{})", x.topic, x.topic))
+        .map(|x| {
+            format!(
+                "> [{}](topic://{})",
+                x.topic,
+                url_escape::encode_component(&x.topic).to_string()
+            )
+        })
         .join("\n")
 }
 fn format_link(link: &Link, offset: Option<f64>) -> color_eyre::Result<String> {
     let mut res = match &link.link_target {
         crate::jobs::transcription::link::LinkType::FileSytemLink(x) => {
-            let mut link = x
-                .to_str()
-                .ok_or_eyre(eyre!("Expected Link path to be parsable; got {:?}", x))?
-                .to_owned();
+            let mut link = url_escape::encode_path(
+                x.to_str()
+                    .ok_or_eyre(eyre!("Expected Link path to be parsable; got {:?}", x))?,
+            )
+            .to_string();
             if !link.starts_with("/") {
                 link = format!("/{}", link);
             }
@@ -62,7 +70,7 @@ fn format_link(link: &Link, offset: Option<f64>) -> color_eyre::Result<String> {
             if !link.starts_with("/") {
                 link = format!("/{}", link);
             }
-            format!("onedrive:{}", link)
+            format!("onedrive:{}", url_escape::encode_path(&link).to_string())
         }
     };
     if let Some(x) = offset {
@@ -71,24 +79,32 @@ fn format_link(link: &Link, offset: Option<f64>) -> color_eyre::Result<String> {
     Ok(res)
 }
 fn format_paragraphs(res: &TranscriptionResult, link: &Link) -> color_eyre::Result<String> {
-    let color = generate_random_color();
-    let color = format!(
-        "#{:x}{:x}{:x}",
-        color.0.floor() as i8,
-        color.1.floor() as i8,
-        color.2.floor() as i8
-    );
+    let speakers = res.paragraphs.iter().map(|x| x.speaker).dedup().count();
+    let mut speaker_colors = Vec::new();
+    for _ in 0..speakers {
+        let color = generate_random_color();
+        log::info!("Color: {:?}", color);
+        let color = format!(
+            "#{:x}{:x}{:x}",
+            (color.0 * 255.).floor() as i8,
+            (color.1 * 255.).floor() as i8,
+            (color.2 * 255.).floor() as i8
+        );
+        speaker_colors.push(color);
+    }
+
     let mut result = String::new();
     for x in &res.paragraphs {
-        format!(
-            "<mark style=\"background-color:{}\">[**Person {:2>0}**]({})</mark>: {}",
-            color,
-            x.speaker
-                .ok_or_eyre(format!("Expected speaker to be set, got {:?}", x))? as i32,
+        let speaker = x
+            .speaker
+            .ok_or_eyre(format!("Expected speaker to be set, got {:?}", x))?;
+        result.push_str(&format!(
+            "<mark style=\"background-color:{}\">[**Person {:2>0}**]({})</mark>: {}<br/>\n",
+            speaker_colors[speaker],
+            speaker,
             format_link(link, Some(x.start))?,
             x.sentences.iter().map(|x| x.clone().text).join(" ")
-        );
-        result = format!("{}\n", result);
+        ));
     }
     Ok(result)
 }

@@ -847,11 +847,8 @@ fn get_related_commits(config: &Config, time: DateTime<Utc>) -> color_eyre::Resu
         .clone()
         .ok_or_eyre("Expected transcription config to be loaded")?;
 
-    let res = git::git_command_wrapper(
-        &["log", "--pretty='format:%H %ct'"],
-        &config.git_directory,
-        &config,
-    )?;
+    let res =
+        git::git_command_wrapper(&["log", "--pretty=%H %ct"], &config.git_directory, &config)?;
     git::wrap_git_command_error(&res)?;
 
     if res.std_out.starts_with("fatal:") {

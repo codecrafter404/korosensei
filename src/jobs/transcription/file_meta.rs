@@ -49,15 +49,14 @@ fn match_date_from_git(file: &Path, conf: &Config) -> color_eyre::Result<chrono:
     )?;
     git::wrap_git_command_error(&res)?;
 
-    let commit_id = res.std_out;
-
+    let commit_id = res.std_out.trim();
     let res = git::git_command_wrapper(
-        &["show", &commit_id, "--quiet", "--pretty='format:%ct'"],
+        &["show", &commit_id, "--quiet", "--pretty=%ct"],
         &conf.git_directory,
         &conf,
     )?;
     git::wrap_git_command_error(&res)?;
-    let date = chrono::DateTime::from_timestamp(res.std_out.parse()?, 0)
+    let date = chrono::DateTime::from_timestamp(res.std_out.trim().parse()?, 0)
         .ok_or_eyre("Expected the git commit date to be a unix timestamp")?;
     return Ok(date);
 }

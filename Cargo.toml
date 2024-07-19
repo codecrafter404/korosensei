@@ -6,7 +6,8 @@ description = "Supercharge your school notes at mach 20"
 authors = [ "Codecrafter_404 <codecrafter404@github.com>" ]
 
 [dependencies]
-reqwest = {version = "0.12.5", features = ["json"]}
+url-escape = "0.1.1"
+reqwest = {version = "0.12.5", features = ["json", "rustls-tls"]}
 serde = {version = "1.0.204", features = ["derive"]}
 serde_json = "1.0.120"
 graph-rs-sdk = {version = "2.0.0", features = ["rustls-tls"]}

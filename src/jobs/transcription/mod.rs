@@ -17,11 +17,14 @@ mod markdown;
 mod template;
 
 pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
-    let files_to_transcribe = file_discovery::discover_files(conf)?;
     let transcription_conf = conf
         .transcription
         .clone()
         .ok_or_eyre("Expected transcription conf to be initialized")?;
+
+    git::check_out_create_branch(&transcription_conf.git_source_branch, &conf)?;
+
+    let files_to_transcribe = file_discovery::discover_files(conf)?;
 
     let deepgram = ::deepgram::Deepgram::new(transcription_conf.deepgram_key);
     let credentials =
@@ -29,8 +32,9 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
 
     let graph = graph_rs_sdk::GraphClient::new(credentials.token);
 
-    let mut processed = vec![];
     git::check_out_create_branch(&transcription_conf.git_source_branch, &conf)?;
+
+    let mut processed = vec![];
     let mut links = Vec::new();
     for file in files_to_transcribe {
         match Link::from_path(&file, &conf) {
@@ -40,6 +44,12 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
             }
         }
     }
+
+    if links.is_empty() {
+        log::info!("didn't get any links");
+        return Ok(());
+    }
+
     git::check_out_create_branch(&transcription_conf.git_target_branch, &conf)?;
     for (file, link) in links {
         match process_file(conf, file.clone(), link.clone(), &deepgram, &graph).await {
@@ -99,14 +109,16 @@ async fn process_file(
         .await
         .wrap_err(eyre!("Failed to transcribe file"))?;
     let file_content = template::get_transcription_file(&transcription_result, &link)?;
-    let target_file_name = format!(
-        "{}.transcript.md",
-        file_to_transcribe
-            .file_name()
-            .ok_or_eyre("expected to get filename")?
-            .to_str()
-            .ok_or_eyre("Expected to parse filename")?
-    );
+    let file_without_link_extension = file_to_transcribe
+        .file_name()
+        .ok_or_eyre("expected to get filename")?
+        .to_str()
+        .ok_or_eyre("Expected to parse filename")?
+        .to_string()
+        .strip_suffix(".link")
+        .ok_or_eyre("Infallible")?
+        .to_string();
+    let target_file_name = format!("{}.transcript.md", file_without_link_extension);
     let dir = conf.git_directory.join(
         transcription_config
             .transcription_script_search_path

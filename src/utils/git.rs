@@ -21,12 +21,13 @@ pub fn git_command_wrapper(
         .args(args)
         .output()?;
 
-    Ok(GitCommandOutput {
+    let res = GitCommandOutput {
         status: res.status,
         std_out: String::from_utf8(res.stdout)?,
         std_err: String::from_utf8(res.stderr)?,
         args: args.into_iter().map(|x| x.to_owned().to_owned()).collect(),
-    })
+    };
+    Ok(res)
 }
 
 pub fn wrap_git_command_error(res: &GitCommandOutput) -> color_eyre::Result<()> {
