@@ -24,7 +24,7 @@ pub struct TranscriptionResult {
 pub(crate) async fn transcribe_link(
     link: &Link,
     conf: &Config,
-    deepgram: deepgram::Deepgram,
+    deepgram: &deepgram::Deepgram,
     graph: &GraphClient,
 ) -> color_eyre::Result<TranscriptionResult> {
     let source = get_source(link, conf, graph).await?;

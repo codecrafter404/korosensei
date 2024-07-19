@@ -19,11 +19,12 @@ mod parse_markdown;
 mod test_data;
 mod test_markdown_parse;
 
+#[derive(Debug, Clone)]
 pub(crate) struct CorrelatingFile {
     /// Path to .md file
-    path: PathBuf,
+    pub path: PathBuf,
     /// Headlines index, starting by 0
-    headlines: Vec<u64>,
+    pub headlines: Vec<u64>,
 }
 impl CorrelatingFile {
     pub(crate) fn link_to_transcript(
@@ -696,6 +697,7 @@ fn harder_tests() {
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
 /// Also extracts the headlines, containing the line changes
+/// the return paths are absolute
 pub(crate) async fn discorver_correlating_files(
     time: DateTime<Utc>,
     config: &Config,
