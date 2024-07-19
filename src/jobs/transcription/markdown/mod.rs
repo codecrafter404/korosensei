@@ -33,22 +33,6 @@ impl CorrelatingFile {
         content: &str,
         transcript_time: &DateTime<Utc>,
     ) -> color_eyre::Result<String> {
-        let transcript_link = format!(
-            "[{}]({})",
-            transcript_time.format("%d.%m.%Y %H:%M"),
-            format!(
-                "/{}",
-                transcript_path
-                    .strip_prefix("/")
-                    .unwrap_or(&transcript_path)
-                    .to_str()
-                    .ok_or_eyre(format!(
-                        "Expected transcript path to be parsable string; got {:?}",
-                        transcript_path
-                    ))?
-            )
-        );
-
         let parsed = parse_markdown::parse_markdown(content)?;
         println!("got parsed: {:#?}", parsed);
         let mut stream = ItemStream::new(&parsed);
@@ -121,15 +105,18 @@ impl CorrelatingFile {
 
                                 println!("-> prev: {:?}", stream.preview(1));
                                 println!("-> [{}] all empty lines before links", result_buf.len());
+                                let mut empty_line_counter = block_nodes.len();
                                 // all empty lines before links
                                 block_nodes.extend_from_slice(&stream.take_while(|x| {
                                     x.get_paragraph()
                                         .is_some_and(|x| x.content == "" || x.content == "")
                                 }));
+                                empty_line_counter = block_nodes.len() - empty_line_counter;
 
                                 println!("-> prev: {:?}", stream.preview(1));
                                 println!("-> [{}] existing links", result_buf.len());
                                 // existing links
+                                let mut _break = false;
                                 loop {
                                     let block_nodes_bak = block_nodes.clone();
                                     let mut line = None;
@@ -160,6 +147,11 @@ impl CorrelatingFile {
                                             }
                                         }
                                         block_nodes.push(MarkdownNode::LinkNode(c));
+                                        if empty_line_counter == 0 {
+                                            _break = true;
+                                            // no empty lines :(
+                                            break;
+                                        }
                                     } else {
                                         if line.is_none() {
                                             // give up
@@ -167,6 +159,13 @@ impl CorrelatingFile {
                                         }
                                     }
                                 }
+
+                                if _break {
+                                    println!("-> we dont have at least one empty line between _Links & [link]()");
+                                    stream = bak;
+                                    break;
+                                }
+
                                 println!("-> prev: {:?}", stream.preview(1));
 
                                 println!("-> [{}] expected end of block", result_buf.len());
@@ -196,17 +195,6 @@ impl CorrelatingFile {
                                     break;
                                 }
                             } else {
-                                // if stream
-                                //     .test(|y| {
-                                //         y.get_block_start().is_some_and(|y| y.line == x.get_line())
-                                //     })
-                                //     .is_some_and(|x| x)
-                                // {
-                                //     block_nodes.extend_from_slice(&stream.take(1));
-                                //     println!("-> continue searching for right block start");
-                                //     continue;
-                                // }
-                                //
                                 println!("-> prev: {:?}", stream.preview(1));
                                 println!("-> no header");
                                 stream = bak;
@@ -331,6 +319,24 @@ impl CorrelatingFile {
                     )),
                 )));
                 line_offset += 1;
+                println!("-> pushing link seperation section");
+                result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                    last_item.get_line() + 3,
+                    " ".into(),
+                    Some(format!(
+                        "{}{}>",
+                        last_item.get_stripped().unwrap_or_default(),
+                        if need_spacing_p {
+                            last_item
+                                .get_paragraph()
+                                .ok_or_eyre("Infallible")?
+                                .get_whitespace()
+                        } else {
+                            String::new()
+                        }
+                    )),
+                )));
+                line_offset += 1;
             } else {
                 println!("-> dont need header");
                 let line = result_buf
@@ -345,6 +351,7 @@ impl CorrelatingFile {
                     .1
                     .clone();
 
+                let mut new_line_offset = 0;
                 let whitespace = match line.last().expect("Infallible") {
                     MarkdownNode::ParagraphNode(x) => {
                         println!("-> we got empty line / _Links");
@@ -356,6 +363,16 @@ impl CorrelatingFile {
                             } else if !x.get_whitespace().is_empty() {
                                 stripped = Some(format!(">"));
                             }
+
+                            println!("-> pushing link seperation section");
+                            result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
+                                last_item.get_line() + 1,
+                                x.get_whitespace(),
+                                stripped.clone(),
+                            )));
+                            line_offset += 1;
+                            new_line_offset += 1;
+
                             x.get_whitespace()
                         } else if x.content.trim().is_empty() {
                             println!("-> newline");
@@ -398,10 +415,9 @@ impl CorrelatingFile {
                     "-> got whitespace {:?}; stripped: {:?}; adding space paragraph",
                     whitespace, stripped
                 );
-                //NOTE: This is technically not spec complient, if whitespace is empty, but its ok
                 if !whitespace.is_empty() {
                     result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
-                        last_item.get_line() + 1,
+                        last_item.get_line() + 1 + new_line_offset,
                         whitespace,
                         stripped.clone(),
                     )));
@@ -430,7 +446,7 @@ impl CorrelatingFile {
             );
             result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
                 last_item.get_line(),
-                transcript_link.clone(),
+                transcript_time.format("%d.%m.%Y %H:%M").to_string(),
                 transcript_path
                     .to_str()
                     .ok_or_eyre("expected transcription path to be parsable")?
@@ -552,7 +568,7 @@ impl CorrelatingFile {
 fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
-        headlines: vec![0, 4, 16, 20, 24, 27, 30],
+        headlines: vec![0, 4, 17, 21, 26, 29, 32, 36],
     };
 
     let input_content = "\
@@ -565,6 +581,7 @@ content
 >
 >
 > _Links
+>
 > [Example]()
 > []()
 
@@ -578,6 +595,7 @@ content
 
 ##### Append Test #3
 > _Links
+>
 > []()
 > broken
 ## Hello world
@@ -589,11 +607,15 @@ content
 > ## Subheading
 > > _Links
 > >
-> > [Existing_link](https://asdf.com)";
+> > [Existing_link](https://asdf.com)
+# Not working
+> _Links
+> []()";
     let expected = "\
 # Hello world
 <!-- test comment -->
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 > Normal callout
@@ -603,6 +625,7 @@ content
 >
 >
 > _Links
+>
 > [Example]()
 > []()
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
@@ -613,11 +636,13 @@ content
 content
 ##### Append Test #2
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 
 ##### Append Test #3
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 > _Links
@@ -625,12 +650,14 @@ content
 > broken
 ## Hello world
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
         content
 > content?
 > # This is also a heading
 > > _Links
+> > 
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 >
 > > test
@@ -640,7 +667,14 @@ content
 > >
 > > [Existing_link](https://asdf.com)
 > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
->";
+>
+# Not working
+> _Links
+> 
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> _Links
+> []()";
     let actual_result = file
         .link_to_transcript(
             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
@@ -671,11 +705,13 @@ fn harder_tests() {
     let expected = "\
 # Hello world
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 > > _Links
 # Hello second world
 > _Links
+> 
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 >>_Links
