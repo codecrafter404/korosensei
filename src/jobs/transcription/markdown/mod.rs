@@ -429,7 +429,7 @@ impl CorrelatingFile {
             );
             result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
                 last_item.get_line(),
-                transcript_time.format("%d.%m.%Y %H:%M").to_string(),
+                transcript_link.clone(),
                 transcript_path
                     .to_str()
                     .ok_or_eyre("expected transcription path to be parsable")?

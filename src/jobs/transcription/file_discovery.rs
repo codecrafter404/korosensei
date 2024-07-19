@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use color_eyre::eyre::OptionExt as _;
+use itertools::Itertools;
 
 use crate::utils::{config::Config, git};
 
 /// Discovers all .link files which have to be transcribed
+/// returns absolute paths
 pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> {
     let transcription_conf = conf
         .transcription
@@ -49,7 +51,7 @@ pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> 
 
     let _ = git::check_out_create_branch(&transcription_conf.git_target_branch, &conf)?;
 
-    let mut files_to_transcribe = vec![];
+    let mut transcribed_files = vec![];
 
     let target_path = conf.git_directory.join(
         transcription_conf
@@ -79,12 +81,15 @@ pub(crate) fn discover_files(conf: &Config) -> color_eyre::Result<Vec<PathBuf>> 
                 .expect("Infallible")
                 .to_owned();
             debug_assert!(name_without_extension.split(".").last().is_some()); // should be mp3/wav/ or any other configured audio file format
-
-            if let Some((path, _)) = link_files.iter().find(|x| x.1 == name_without_extension) {
-                files_to_transcribe.push(path.clone());
-            }
+            transcribed_files.push((dir_entry.path(), name_without_extension))
         }
     }
 
-    Ok(files_to_transcribe)
+    let links_to_transcribe = link_files
+        .into_iter()
+        .filter(|(_, name)| transcribed_files.iter().all(|(_, b)| b != name))
+        .map(|x| x.0)
+        .collect_vec();
+
+    Ok(links_to_transcribe)
 }
