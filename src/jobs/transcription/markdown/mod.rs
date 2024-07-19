@@ -655,40 +655,44 @@ content
     }
 }
 
-// #[test]
-// fn harder_tests() {
-//     let file = CorrelatingFile {
-//         path: PathBuf::new(),
-//         headlines: vec![0, 2],
-//     };
-//     let input_content = "\
-// # Hello world
-// > > _Links
-// # Hello second world
-// >>_Links
-// >>[]()";
-//     let expected = "\
-// # Hello world
-// > > _Links
-// > > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
-// # Hello second world
-// >>_Links
-// >>[]()
-// >>[14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)";
-//     let actual_result = file
-//         .link_to_transcript(
-//             PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
-//             input_content,
-//             &DateTime::from_timestamp(1720958400, 0).unwrap(),
-//         )
-//         .unwrap();
-//     println!("{:#?}", actual_result);
-//     let actual_result = actual_result.split("\n").collect_vec();
-//     let expected = expected.split("\n").collect_vec();
-//     for (idx, e) in expected.into_iter().enumerate() {
-//         assert_eq!(actual_result[idx], e, "[{}]", idx);
-//     }
-// }
+#[test]
+fn harder_tests() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0, 2],
+    };
+    let input_content = "\
+# Hello world
+> > _Links
+# Hello second world
+>>_Links
+>>[]()";
+    let expected = "\
+# Hello world
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+> > _Links
+# Hello second world
+> _Links
+> [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
+
+>>_Links
+>>[]()";
+    let actual_result = file
+        .link_to_transcript(
+            PathBuf::from_str("/assets/transcriptions/asdf.transcript.md").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
+        )
+        .unwrap();
+    println!("{:#?}", actual_result);
+    let actual_result = actual_result.split("\n").collect_vec();
+    let expected = expected.split("\n").collect_vec();
+    for (idx, e) in expected.into_iter().enumerate() {
+        assert_eq!(actual_result[idx], e, "[{}]", idx);
+    }
+}
 
 /// Discovers lines of .md files which contents have been changed at `time` (- `time_window`)
 /// Also extracts the headlines, containing the line changes
