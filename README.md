@@ -18,4 +18,4 @@
 - [ ] https://www.quivr.com/ integration (but has to use gemini)
 
 ## Setup ENVs
-[.env.example](https://github.com/github/codecrafter404/korosensei/blob/main/.env.example)
+[https://github.com/codecrafter404/korosensei/blob/main/.env.example](https://github.com/codecrafter404/korosensei/blob/main/.env.example)
