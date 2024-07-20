@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::utils::git;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use color_eyre::eyre::{eyre, Context, OptionExt};
 use itertools::Itertools;
 use link::Link;
@@ -34,7 +34,6 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
 
     git::check_out_create_branch(&transcription_conf.git_source_branch, &conf)?;
 
-    let mut processed = vec![];
     let mut links = Vec::new();
     for file in files_to_transcribe {
         match Link::from_path(&file, &conf) {
@@ -46,7 +45,7 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
     }
 
     if links.is_empty() {
-        log::info!("didn't get any links");
+        log::info!("didn't get any (new) links");
         return Ok(());
     }
 
@@ -54,17 +53,45 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
 
     let (blamed_files, _) =
         git::blame::BlamedFile::blame_all(&conf).wrap_err("Failed to blame directory tree")?;
-
+    println!("blamed_files: {:?}", blamed_files);
+    let mut files_to_link = Vec::new();
     for (file, link) in links {
         match process_file(conf, file.clone(), link.clone(), &deepgram, &graph).await {
-            Ok(_) => {
-                processed.push(file);
+            Ok(x) => {
+                files_to_link.push(x);
             }
             Err(why) => {
                 log::error!("Failed to proccess link: {:?}", why);
             }
         }
     }
+
+    let mut processed = Vec::new();
+    // link transcripts to correlating files
+    // TODO: make more efficient to not read all files multiple times
+    for (link, transcript_path) in files_to_link {
+        let cut_of_date = link.last_modified - transcription_conf.time_window;
+        let correlating_files = blamed_files
+            .clone()
+            .into_iter()
+            .map(|x| x.to_correlating_file(&conf, cut_of_date.clone()))
+            .collect::<Result<Vec<_>, _>>();
+        match handle_correlating_files(
+            correlating_files,
+            transcript_path.clone(),
+            &link.last_modified,
+        ) {
+            Ok(_) => processed.push(transcript_path.clone()),
+            Err(why) => {
+                log::error!(
+                    "Failed to link_correlating_files for transcript {:?}: {:?}",
+                    transcript_path,
+                    why
+                );
+            }
+        }
+    }
+
     // commit changes
     if processed.len() > 0 {
         git::wrap_git_command_error(&git::git_command_wrapper(
@@ -103,7 +130,7 @@ async fn process_file(
     link: Link,
     deepgram: &::deepgram::Deepgram,
     graph: &graph_rs_sdk::GraphClient,
-) -> color_eyre::Result<()> {
+) -> color_eyre::Result<(Link, PathBuf)> {
     let transcription_config = conf
         .transcription
         .clone()
@@ -134,17 +161,41 @@ async fn process_file(
     let path = dir.join(target_file_name.clone());
     std::fs::write(path.clone(), file_content)?;
 
-    Ok(())
+    Ok((link, path))
 }
-fn handle_correlating_file(
-    file: CorrelatingFile,
-    link: &Link,
+fn handle_correlating_files(
+    files: color_eyre::Result<Vec<Option<CorrelatingFile>>>,
     transcript: PathBuf,
+    time: &DateTime<Utc>,
 ) -> color_eyre::Result<()> {
-    log::info!("Got correlating file: {:?}", file);
-    let correlating_file_path = file.path.clone();
-    let content = std::fs::read_to_string(correlating_file_path.clone())?;
-    let new_file = file.link_to_transcript(transcript, &content, &link.last_modified)?;
-    std::fs::write(correlating_file_path, new_file)?;
+    let files = files?;
+    let files = files.into_iter().filter_map(|x| x).collect_vec();
+    log::info!("Got {} files to link", files.len());
+
+    for file in files {
+        match file.link_to_transcript(transcript.clone(), &file.content, time) {
+            Ok(x) => match std::fs::write(file.path.clone(), x) {
+                Ok(_) => {
+                    log::info!("Successfully linked {:?} -> {:?}", transcript, file.path);
+                }
+                Err(why) => {
+                    log::error!(
+                        "Failed to write updated file {:?} (while linking {:?}): {:?}",
+                        file.path,
+                        transcript,
+                        why
+                    );
+                }
+            },
+            Err(why) => {
+                log::error!(
+                    "Failed to link transcript {:?} to file {:?}: {:?}",
+                    transcript,
+                    file.path,
+                    why
+                );
+            }
+        }
+    }
     Ok(())
 }

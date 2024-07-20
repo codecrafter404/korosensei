@@ -25,6 +25,8 @@ pub(crate) struct CorrelatingFile {
     pub path: PathBuf,
     /// Headlines index, starting by 0
     pub headlines: Vec<u64>,
+    /// content
+    pub content: String,
 }
 impl CorrelatingFile {
     pub(crate) fn link_to_transcript(
@@ -575,6 +577,7 @@ fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
         headlines: vec![0, 4, 17, 21, 25, 28, 31, 35],
+        content: String::new(),
     };
 
     let input_content = "\
@@ -700,6 +703,7 @@ fn harder_tests() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
         headlines: vec![0, 2],
+        content: String::new(),
     };
     let input_content = "\
 # Hello world
@@ -740,7 +744,7 @@ fn harder_tests() {
 
 /// gets the nearest (direction: up) heading
 /// when `include_parents == true` then also the next parent headings
-fn get_related_markdown_headings(
+pub(crate) fn get_related_markdown_headings(
     line: u64,
     content: &str,
     include_parents: bool,

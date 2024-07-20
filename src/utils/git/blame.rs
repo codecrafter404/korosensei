@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context as _, OptionExt as _};
 use itertools::Itertools as _;
 
+use crate::jobs::transcription;
+use crate::jobs::transcription::markdown::{self, CorrelatingFile};
 use crate::utils::config::Config;
 use crate::utils::git;
 
@@ -47,6 +49,7 @@ impl BlamedFile {
     }
     /// returnes absolute paths
     fn collect_files_to_blame(path: PathBuf) -> color_eyre::Result<Vec<PathBuf>> {
+        println!("collecting files in dir {:?}: {:?}", path, path.exists());
         let walker = walkdir::WalkDir::new(path).into_iter().filter_entry(|e| {
             e.file_name()
                 .to_str()
@@ -62,6 +65,7 @@ impl BlamedFile {
                 }
             }
         }
+        println!("got entries: {:?}", res);
         Ok(res)
     }
     /// git blame --line-porcelain <path>
@@ -86,9 +90,48 @@ impl BlamedFile {
     pub fn to_correlating_file(
         &self,
         conf: &Config,
-        date: DateTime<Utc>,
-    ) -> color_eyre::Result<crate::jobs::transcription::markdown::CorrelatingFile> {
-        unimplemented!()
+        cutoff_date: DateTime<Utc>,
+    ) -> color_eyre::Result<Option<crate::jobs::transcription::markdown::CorrelatingFile>> {
+        println!("blame: {:?}; cut: {:?}", self.blame, cutoff_date);
+        let lines_of_interest = self
+            .blame
+            .clone()
+            .into_iter()
+            .filter(|x| x.time > cutoff_date)
+            .map(|x| x.line)
+            .collect_vec();
+        if lines_of_interest.is_empty() {
+            // skip file io
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(self.file.clone())?;
+        let transcription_config = conf
+            .transcription
+            .clone()
+            .ok_or_eyre("Expected transcription config to be initialized")?;
+
+        let res = lines_of_interest
+            .into_iter()
+            .map(|x| {
+                markdown::get_related_markdown_headings(
+                    x as u64,
+                    &content,
+                    transcription_config.include_parent,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .dedup()
+            .collect_vec();
+        if res.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CorrelatingFile {
+            path: self.file.clone(),
+            headlines: res,
+            content,
+        }))
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
