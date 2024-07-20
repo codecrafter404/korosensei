@@ -156,6 +156,7 @@ fn handle_correlating_file(
     link: &Link,
     transcript: PathBuf,
 ) -> color_eyre::Result<()> {
+    log::info!("Got correlating file: {:?}", file);
     let correlating_file_path = file.path.clone();
     let content = std::fs::read_to_string(correlating_file_path.clone())?;
     let new_file = file.link_to_transcript(transcript, &content, &link.last_modified)?;

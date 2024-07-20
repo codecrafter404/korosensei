@@ -265,6 +265,7 @@ impl CorrelatingFile {
                 last_block_level,
                 stream.preview(3)
             );
+            let mut new_line_offset = 0;
             if need_header {
                 // add spacing if needed
 
@@ -351,7 +352,6 @@ impl CorrelatingFile {
                     .1
                     .clone();
 
-                let mut new_line_offset = 0;
                 let whitespace = match line.last().expect("Infallible") {
                     MarkdownNode::ParagraphNode(x) => {
                         println!("-> we got empty line / _Links");
@@ -503,17 +503,23 @@ impl CorrelatingFile {
                 .1
                 .clone();
 
+            println!("-> newline_offset: {}", new_line_offset);
             // adding an empty line after
             if stream
                 .test(|x| {
                     x.get_paragraph().is_some_and(|x| {
-                        x.content.trim().is_empty() && x.line == last_item.get_line()
+                        x.content.trim().is_empty()
+                            && (x.line + new_line_offset) == last_item.get_line()
                     })
                 })
                 .is_some_and(|x| !x)
             {
                 println!("-> adding empty paragraph for seperation");
-                println!("-> last_item: {:?}", last_item);
+                println!(
+                    "-> last_item: {:?}; prev: {:?}",
+                    last_item,
+                    stream.preview(1)
+                );
                 result_buf.push(MarkdownNode::ParagraphNode(ParagraphNode::new(
                     last_item.get_line() + 1,
                     "".into(),
@@ -568,7 +574,7 @@ impl CorrelatingFile {
 fn test_corelating_file_linkage_full() {
     let file = CorrelatingFile {
         path: PathBuf::new(),
-        headlines: vec![0, 4, 17, 21, 26, 29, 32, 36],
+        headlines: vec![0, 4, 17, 21, 25, 28, 31, 35],
     };
 
     let input_content = "\
@@ -595,7 +601,6 @@ content
 
 ##### Append Test #3
 > _Links
->
 > []()
 > broken
 ## Hello world
@@ -701,6 +706,7 @@ fn harder_tests() {
 > > _Links
 # Hello second world
 >>_Links
+>>
 >>[]()";
     let expected = "\
 # Hello world
@@ -715,6 +721,7 @@ fn harder_tests() {
 > [14.07.2024 12:00](/assets/transcriptions/asdf.transcript.md)
 
 >>_Links
+>>
 >>[]()";
     let actual_result = file
         .link_to_transcript(
@@ -747,11 +754,13 @@ pub(crate) async fn discorver_correlating_files(
 
     // gets all commits that happend in the timewindow around time
     let commits = get_related_commits(&config, time.clone())?;
+    println!("Related_commits: {:?}", commits);
     let mut changed_files = vec![];
     for commit in commits {
         let files = diff_commit(&commit, config)?;
         changed_files.extend_from_slice(&files);
     }
+    println!("-> changed_files: {:?}", changed_files);
     let transcription_base_path = transcription_config
         .transcription_script_search_path
         .strip_prefix("/")
