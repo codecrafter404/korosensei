@@ -8,6 +8,7 @@ use nodes::block::BlockNode;
 use nodes::link::LinkNode;
 use nodes::paragraph::ParagraphNode;
 use parse_markdown::MarkdownNode;
+use serde::de::Expected;
 
 use crate::utils::char_stream::ItemStream;
 use crate::utils::config::Config;
@@ -37,7 +38,12 @@ impl CorrelatingFile {
     ) -> color_eyre::Result<String> {
         let parsed = parse_markdown::parse_markdown(content)?;
         println!("got parsed: {:#?}", parsed);
-        let mut stream = ItemStream::new(&parsed);
+        let mut stream = ItemStream::new(&parsed.into_iter().rev().collect_vec());
+        let whitespace = stream.take_while(|x| {
+            x.get_paragraph()
+                .is_some_and(|x| x.content.trim().is_empty())
+        });
+        let mut stream = ItemStream::new(&stream.collect().into_iter().rev().collect_vec());
 
         let mut result_buf = Vec::new();
 
@@ -70,7 +76,7 @@ impl CorrelatingFile {
                     headline
                 )))?;
             println!("-> H1: {:?}", h);
-            result_buf.push(MarkdownNode::Headline(h));
+            result_buf.push(MarkdownNode::Headline(h.clone()));
             let htmls = stream.take_while(|x| {
                 x.get_html().is_some() || x.get_paragraph().is_some_and(|x| x.content == "")
             });
@@ -252,7 +258,10 @@ impl CorrelatingFile {
             let last_block_level = result_buf
                 .iter()
                 .rev()
-                .find(|x| x.get_block_start().is_some() || x.get_block_end().is_some())
+                .find(|x| {
+                    (x.get_block_start().is_some() || x.get_block_end().is_some())
+                        && x.get_line() >= h.line
+                })
                 .map(|x| match x {
                     MarkdownNode::BlockStart(x) => x.level,
                     MarkdownNode::BlockEnd(x) => x.level - 1,
@@ -449,10 +458,13 @@ impl CorrelatingFile {
             result_buf.push(MarkdownNode::LinkNode(LinkNode::new(
                 last_item.get_line(),
                 transcript_time.format("%d.%m.%Y %H:%M").to_string(),
-                transcript_path
-                    .to_str()
-                    .ok_or_eyre("expected transcription path to be parsable")?
-                    .to_string(),
+                url_escape::encode_path(
+                    &transcript_path
+                        .to_str()
+                        .ok_or_eyre("expected transcription path to be parsable")?
+                        .to_string(),
+                )
+                .to_string(),
                 if last_line_items.is_empty() {
                     stripped
                 } else {
@@ -565,10 +577,117 @@ impl CorrelatingFile {
         if !stream.is_empty() {
             result_buf.extend_from_slice(&stream.collect());
         }
+        let whitespace = whitespace
+            .into_iter()
+            .map(|x| {
+                let mut x = x;
+                x.increment_line_by(general_offset);
+                x
+            })
+            .collect_vec();
+        result_buf.extend_from_slice(&whitespace);
         println!("{:#?}", result_buf);
         let res = parse_markdown::construct_markdown(result_buf)?;
 
         Ok(res)
+    }
+}
+#[test]
+fn test_eof_1() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0],
+        content: String::new(),
+    };
+    let input_content = "\
+# Hello World
+";
+    let expected = "\
+# Hello World
+> _Links
+> 
+> [14.07.2024 12:00](hello)
+";
+
+    let actual_result = file
+        .link_to_transcript(
+            PathBuf::from_str("hello").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
+        )
+        .unwrap();
+    println!("{:#?}", actual_result);
+    let actual_result = actual_result.split("\n").collect_vec();
+    let expected = expected.split("\n").collect_vec();
+    for (idx, e) in expected.into_iter().enumerate() {
+        assert_eq!(actual_result[idx], e, "[{}]", idx);
+    }
+}
+
+#[test]
+fn test_eof_2() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0],
+        content: String::new(),
+    };
+    let input_content = "\
+# Hello World
+
+> _Links
+> 
+> []()
+";
+    let expected = "\
+# Hello World
+
+> _Links
+> 
+> []()
+> [14.07.2024 12:00](hello)
+";
+
+    let actual_result = file
+        .link_to_transcript(
+            PathBuf::from_str("hello").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
+        )
+        .unwrap();
+    println!("{:#?}", actual_result);
+    let actual_result = actual_result.split("\n").collect_vec();
+    let expected = expected.split("\n").collect_vec();
+    for (idx, e) in expected.into_iter().enumerate() {
+        assert_eq!(actual_result[idx], e, "[{}]", idx);
+    }
+}
+#[test]
+fn test_whitespace_in_link() {
+    let file = CorrelatingFile {
+        path: PathBuf::new(),
+        headlines: vec![0],
+        content: String::new(),
+    };
+    let input_content = "\
+# Hello World";
+    let expected = "\
+# Hello World
+> _Links
+> 
+> [14.07.2024 12:00](hello%20world)";
+
+    let actual_result = file
+        .link_to_transcript(
+            PathBuf::from_str("hello world").unwrap(),
+            input_content,
+            &DateTime::from_timestamp(1720958400, 0).unwrap(),
+        )
+        .unwrap();
+    println!("{:#?}", actual_result);
+    let actual_result = actual_result.split("\n").collect_vec();
+    let expected = expected.split("\n").collect_vec();
+    for (idx, e) in expected.into_iter().enumerate() {
+        assert_eq!(actual_result[idx], e, "[{}]", idx);
     }
 }
 

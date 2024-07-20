@@ -49,13 +49,7 @@ impl BlamedFile {
     }
     /// returnes absolute paths
     fn collect_files_to_blame(path: PathBuf) -> color_eyre::Result<Vec<PathBuf>> {
-        println!("collecting files in dir {:?}: {:?}", path, path.exists());
-        let walker = walkdir::WalkDir::new(path).into_iter().filter_entry(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|x| x.ends_with(".md") && !x.ends_with(".transcription.md"))
-                && !e.path_is_symlink()
-        });
+        let walker = walkdir::WalkDir::new(path).into_iter();
         let mut res = Vec::new();
         for entry in walker {
             match entry {
@@ -65,7 +59,15 @@ impl BlamedFile {
                 }
             }
         }
-        println!("got entries: {:?}", res);
+        res = res
+            .clone()
+            .into_iter()
+            .filter(|x| {
+                x.file_name()
+                    .is_some_and(|x| x.to_str().unwrap_or_default().ends_with(".md"))
+                    && x.is_file()
+            })
+            .collect_vec();
         Ok(res)
     }
     /// git blame --line-porcelain <path>
