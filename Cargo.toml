@@ -26,3 +26,4 @@ patch = "0.7.0"
 itertools = "0.13.0"
 deepgram = {git = "https://github.com/codecrafter404/deepgram-rust-sdk/", rev = "d4134d847e74d9f142862570bb5629de41ad237e"}
 rand = "0.8.5"
+walkdir = "2.5.0"

@@ -1315,6 +1315,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url-escape",
+ "walkdir",
  "which",
 ]
 

@@ -3,6 +3,7 @@ use std::{path::Path, process::ExitStatus};
 use color_eyre::eyre::eyre;
 
 use super::config::Config;
+pub mod blame;
 
 #[derive(Debug, Clone)]
 pub struct GitCommandOutput {

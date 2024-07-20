@@ -13,7 +13,7 @@ mod deepgram;
 mod file_discovery;
 mod file_meta;
 mod link;
-mod markdown;
+pub mod markdown;
 mod template;
 
 pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
@@ -51,6 +51,10 @@ pub async fn transcribe_audio(conf: &Config) -> color_eyre::Result<()> {
     }
 
     git::check_out_create_branch(&transcription_conf.git_target_branch, &conf)?;
+
+    let (blamed_files, _) =
+        git::blame::BlamedFile::blame_all(&conf).wrap_err("Failed to blame directory tree")?;
+
     for (file, link) in links {
         match process_file(conf, file.clone(), link.clone(), &deepgram, &graph).await {
             Ok(_) => {
@@ -130,25 +134,6 @@ async fn process_file(
     let path = dir.join(target_file_name.clone());
     std::fs::write(path.clone(), file_content)?;
 
-    // let correlating_files = markdown::discorver_correlating_files(link.last_modified, conf).await?;
-    // for file in correlating_files {
-    //     match handle_correlating_file(file.clone(), &link, path.clone()) {
-    //         Ok(_) => {
-    //             log::info!(
-    //                 "Successfully linked transcript '{}' to '{}'",
-    //                 target_file_name,
-    //                 file.path
-    //                     .file_name()
-    //                     .ok_or_eyre("Expected to get filename")?
-    //                     .to_str()
-    //                     .ok_or_eyre("Expected to get parsable filename")?
-    //             );
-    //         }
-    //         Err(why) => {
-    //             log::error!("Failed to handle correlating file {:?}: {:?}", file, why);
-    //         }
-    //     }
-    // }
     Ok(())
 }
 fn handle_correlating_file(
