@@ -40,3 +40,5 @@
 2. Get your [DeepGram API KEY](https://deepgram.com/)
 3. Fill out the [.env.example](https://github.com/github/codecrafter404/korosensei/blob/main/.env.example) (and rename to `.env`) (documented / see [pipeline docs](#onedrive-file-transcription-pipeline))
 4. Run the program (Get help with `--help` in order to activate/deactivate different steps of the pipeline)
+## Setup ENVs
+[https://github.com/codecrafter404/korosensei/blob/main/.env.example](https://github.com/codecrafter404/korosensei/blob/main/.env.example)
